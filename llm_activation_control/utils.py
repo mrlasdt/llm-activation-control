@@ -29,7 +29,7 @@ def get_harmless_instructions():
             instructions.append(dataset["train"][i]["instruction"])
 
     train, test = train_test_split(instructions, test_size=0.2, random_state=42)
-    return train, test
+    return train[:512], test[:128]
 
 
 def get_harmful_instructions_jp():
@@ -90,7 +90,9 @@ def get_harmless_instructions_jp():
 def get_input_data(data_type, language_id):
     if data_type == "harmless":
         if language_id == "en":
-            data_train, data_test = get_harmful_instructions()
+            data_train, data_test = get_harmless_instructions()
+            data_train = data_train
+            data_test = data_test
         elif language_id == "jp":
             data_train, data_test = get_harmless_instructions_jp()
     elif data_type == "harmful":
@@ -98,5 +100,17 @@ def get_input_data(data_type, language_id):
             data_train, data_test = get_harmful_instructions()
         elif language_id == "jp":
             data_train, data_test = get_harmful_instructions_jp()
+    elif data_type == "sad_happy":
+        emotion_prompt = "Answer in the most negative, sad and depressed way possible."
+        data_train, data_test = get_harmless_instructions()
+        data_train = [f"{inst}\n{emotion_prompt}" for inst in data_train]
+        data_test = [f"{inst}\n{emotion_prompt}" for inst in data_test]
+    elif data_type == "angry_calm":
+        emotion_prompt = (
+            "Answer in the most angry, frustrated and aggressive way possible."
+        )
+        data_train, data_test = get_harmless_instructions()
+        data_train = [f"{inst}\n{emotion_prompt}" for inst in data_train]
+        data_test = [f"{inst}\n{emotion_prompt}" for inst in data_test]
 
     return data_train, data_test
