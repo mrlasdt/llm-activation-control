@@ -13,4 +13,4 @@ setuptools==75.1.0
 torch==2.5.1
 transformer_lens==2.15.4
 transformers==4.48.0
-vllm==0.8.5.post1
+#vllm==0.8.5.post1
