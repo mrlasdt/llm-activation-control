@@ -126,13 +126,29 @@ def compute_steering_plane(
         diff = harmful_mean - harmless_mean
         candidate_directions[key] = diff
 
+    # Drop degenerate candidates whose direction underflows to ~0. This happens
+    # at layer 0, where the extracted last-token activation (pre first layernorm)
+    # is identical across prompts because the chat-template suffix is shared, so
+    # harmful_mean == harmless_mean and diff == 0. Normalizing such a vector
+    # yields NaN (0/0), which then poisons selection, PCA, and b1/b2.
+    eps = 1e-8
+    degenerate = [k for k, v in candidate_directions.items() if v.norm().item() <= eps]
+    for k in degenerate:
+        del candidate_directions[k]
+    if degenerate:
+        print(f"[compute_steering_plane] dropped degenerate layers: {degenerate}")
+    if not candidate_directions:
+        raise ValueError("All candidate directions are degenerate (near-zero).")
+
     # PCA on all candidates
     sorted_keys = sorted(candidate_directions.keys())
     all_candidates = torch.stack([candidate_directions[k] for k in sorted_keys])
 
     pca = PCA()
     pca.fit(all_candidates.cpu().numpy())
-    second_direction_pca = torch.from_numpy(pca.components_[0]).to(all_candidates.device)
+    pca_components = torch.from_numpy(pca.components_).to(
+        device=all_candidates.device, dtype=all_candidates.dtype
+    )
 
     # Select by max mean cosine similarity
     candidates_normalized = {k: v / v.norm() for k, v in candidate_directions.items()}
@@ -147,8 +163,34 @@ def compute_steering_plane(
     b1 = candidate_directions[selected_key]
     b1 = b1 / b1.norm()
 
-    b2 = second_direction_pca - (second_direction_pca @ b1) * b1
-    b2 = b2 / b2.norm()
+    # Orient b1 toward the safe (harmless) equilibrium so that phi=0 corresponds
+    # to harmless prompts and harmful prompts are displaced toward phi=pi (high
+    # potential energy 1-cos(phi)). This matches the pendulum hypothesis where
+    # "unsafe" = displaced from the stable equilibrium. b1 is built as
+    # (harmful_mean - harmless_mean), so by default phi=0 points at harmful; we
+    # flip it if the harmful mean projects more positively onto b1 than harmless.
+    h_sel = harmful_acts[selected_key].float()
+    l_sel = harmless_acts[selected_key].float()
+    h_mean = (h_sel / h_sel.norm(dim=-1, keepdim=True)).mean(0)
+    l_mean = (l_sel / l_sel.norm(dim=-1, keepdim=True)).mean(0)
+    if (h_mean @ b1) > (l_mean @ b1):
+        b1 = -b1
+
+    # b2 = leading PCA component, orthogonalized against b1. The top component is
+    # typically near-parallel to b1 (the most central candidate), so its residual
+    # collapses to ~0 and b2/b2.norm() would be NaN. Fall back to the next
+    # component that retains a usable orthogonal residual.
+    b2 = None
+    for comp in pca_components:
+        residual = comp - (comp @ b1) * b1
+        if residual.norm() > 1e-6:
+            b2 = residual / residual.norm()
+            break
+    if b2 is None:
+        raise ValueError(
+            "Could not construct b2 orthogonal to b1: all PCA components are "
+            "parallel to b1."
+        )
 
     return {
         "b1": b1,
@@ -539,18 +581,25 @@ def compute_statistics(harmful_traj: dict, harmless_traj: dict) -> dict:
         stats[f"{label}_energy_final_mean"] = float(energy[:, -1].mean())
         stats[f"{label}_energy_max_mean"] = float(energy.max(axis=1).mean())
 
-    # Check separatrix crossing: does any harmless prompt have energy > kappa at any layer?
-    harmless_phi = harmless_traj["phi"][:, :-1]
-    harmless_omega = harmless_traj["omega"]
-    harmless_energy = 0.5 * harmless_omega**2 + (1 - np.cos(harmless_phi))
-    stats["harmless_max_energy_any"] = float(harmless_energy.max())
-    stats["harmless_separatrix_crossings"] = int((harmless_energy > 1.0).any(axis=1).sum())
-
-    harmful_phi = harmful_traj["phi"][:, :-1]
-    harmful_omega = harmful_traj["omega"]
-    harmful_energy = 0.5 * harmful_omega**2 + (1 - np.cos(harmful_phi))
-    stats["harmful_max_energy_any"] = float(harmful_energy.max())
-    stats["harmful_separatrix_crossings"] = int((harmful_energy > 1.0).any(axis=1).sum())
+    # Separatrix crossing (V > kappa = 1.0). The "any layer" reduction is
+    # degenerate: over a long noisy trajectory essentially every prompt of either
+    # class exceeds the threshold at some layer, so it saturates at 100%/100% and
+    # carries no signal. Instead report layer-specific metrics:
+    #   - *_separatrix_crossings: count above threshold at the FINAL layer (the
+    #     model's settled state), which is what actually discriminates the classes.
+    #   - *_separatrix_fraction: mean fraction of layers each prompt spends above
+    #     the threshold (a smooth per-prompt measure of how "displaced" it is).
+    # The old saturating value is kept as *_separatrix_crossings_any for reference.
+    kappa = 1.0
+    for label, traj in [("harmful", harmful_traj), ("harmless", harmless_traj)]:
+        phi = traj["phi"][:, :-1]
+        omega = traj["omega"]
+        energy = 0.5 * omega**2 + (1 - np.cos(phi))
+        above = energy > kappa
+        stats[f"{label}_max_energy_any"] = float(energy.max())
+        stats[f"{label}_separatrix_crossings"] = int(above[:, -1].sum())
+        stats[f"{label}_separatrix_crossings_any"] = int(above.any(axis=1).sum())
+        stats[f"{label}_separatrix_fraction"] = float(above.mean(axis=1).mean())
 
     return stats
 
@@ -655,9 +704,11 @@ def main():
     print(f"\nBehavioral energy (V = 0.5*omega^2 + 1-cos(phi)):")
     print(f"  Harmful:  mean={stats['harmful_energy_mean']:.4f}, final={stats['harmful_energy_final_mean']:.4f}")
     print(f"  Harmless: mean={stats['harmless_energy_mean']:.4f}, final={stats['harmless_energy_final_mean']:.4f}")
-    print(f"\nSeparatrix crossings (energy > 1.0):")
-    print(f"  Harmful:  {stats['harmful_separatrix_crossings']}/{stats['n_harmful']} samples")
-    print(f"  Harmless: {stats['harmless_separatrix_crossings']}/{stats['n_harmless']} samples")
+    print(f"\nSeparatrix crossings at final layer (energy > 1.0):")
+    print(f"  Harmful:  {stats['harmful_separatrix_crossings']}/{stats['n_harmful']} samples "
+          f"({stats['harmful_separatrix_fraction']:.1%} of layers above, on average)")
+    print(f"  Harmless: {stats['harmless_separatrix_crossings']}/{stats['n_harmless']} samples "
+          f"({stats['harmless_separatrix_fraction']:.1%} of layers above, on average)")
 
     # Save statistics
     with open(output_dir / "statistics.json", "w") as f:

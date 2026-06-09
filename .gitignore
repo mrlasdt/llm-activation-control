@@ -5,3 +5,8 @@ __pycache__/
 *.egg-info/
 benchmarks/**/samples*
 pytorch_pure/output/
+*npz
+*png
+*log
+*pdf
+*json
