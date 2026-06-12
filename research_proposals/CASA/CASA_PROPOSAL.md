@@ -1,14 +1,29 @@
 # CASA — Constrained Additive Subspace Ablation
 
-*Control-theoretic steering with a **norm-changing** actuator. The salvage of PTS:
-PTS's machinery (k-dim subspace, per-layer perturbation bound, plant + MPC over a
-layer band) becomes load-bearing once the norm-preserving rotation is replaced by
-additive bounded ablation.*
+*Control-theoretic steering with a **norm-changing** actuator, on a **refusal
+concept cone** rather than a 2D plane. The salvage of PTS: PTS's machinery
+(k-dim subspace, per-layer perturbation bound, plant + MPC over a layer band)
+becomes load-bearing once (a) the norm-preserving rotation is replaced by additive
+bounded ablation, and (b) the subspace is a refusal-specific **concept cone**
+(Wollschläger et al., ICML 2025) instead of a blunt SVD span.*
 
-Status: **prototype-validated headline, research program open** (2026-06-12).
-Prototype: `../PTS/verify/additive_subspace_steer.py`. Provenance: emerged from the
-PTS verified-negative — see `../PTS/PTS_README.md` Verdict, last bullet ("where PTS's
-machinery could still matter: a non-norm-preserving actuator").
+Status: **concept-cone implemented, trained to convergence, and judged with the
+StrongREJECT fine-tuned evaluator (2026-06-12).** Modules: `casa_actuator.py`,
+`casa_cone.py`, `casa_control.py`, `casa_judge.py`, `casa_experiment.py`,
+`casa_plot.py` (each self-tested). Origin prototype: `../PTS/verify/additive_subspace_steer.py`.
+Provenance: emerged from the PTS verified-negative — see `../PTS/PTS_README.md` Verdict,
+last bullet ("a non-norm-preserving actuator").
+
+**Headline (Gemma-2-2b, band 7–24, full-convergence training, 256-token gens scored
+by the StrongREJECT fine-tuned judge):** the refusal **concept cone (k=4)** delivers
+a *strong* jailbreak — **StrongREJECT 0.68, 82% of prompts >0.5, at a NEGATIVE
+coherence tax (−0.71 ΔNLL)** — exactly where the blunt SVD subspace at the same k is
+incoherent gibberish (StrongREJECT ≈0, +1.9 ΔNLL). Adding the bounded-`u` additive
+**MPC** distribution gives the single best operating point of all conditions
+(**StrongREJECT 0.76** at −0.41 ΔNLL). The bare k=4 cone ties the best k=1 (0.68 vs
+RDO 0.71 / SVD 0.69); the win over k=1 comes from the cone **+** the MPC together, and
+from coherence at equal harm. The blunt k>1 subspace that originally sank L2 is
+decisively beaten by a refusal-specific one.
 
 ---
 
@@ -16,124 +31,191 @@ machinery could still matter: a non-norm-preserving actuator").
 
 Angular Steering (and every control recasting of it so far — SO2, PTS, OAS) shares
 one actuator: a **norm-preserving rotation** of the in-plane component to an absolute
-angle. We now have direct evidence that *this actuator*, not the planner, is what
-fails on Gemma:
+angle. We have direct evidence that *this actuator*, not the planner, is what fails
+on Gemma:
 
 - Canonical AS (`input_layernorm`, 1 layer) is **inert** on Gemma-2-2b from every
   layer (best de-refusal margin −2.09, still refusing).
 - The aggressive residual-stream rotation band only **partially** de-refuses
   (margin +10.83 → +3.67; ~3–4/6 prompts still hedge/refuse).
 - PTS's adaptive per-layer angle adds **nothing** over a fixed angle on the same band
-  (+3.66 vs +3.67) — because a norm-preserving actuator collapses the 2D plan to one
-  realized DoF (the angle).
+  — a norm-preserving actuator collapses the 2D plan to one realized DoF (the angle).
 
 Replacing rotation with **additive directional ablation** along the refusal axis,
-applied across the discriminative band, flips it cleanly:
+applied across the discriminative band, flips it cleanly (the original prototype):
 
 | condition (Gemma-2-2b, band 7–24) | refusal margin | neutral ΔNLL | behavior |
 |---|---:|---:|---|
 | baseline | +10.83 | — | refuses 6/6 |
 | AS-rotation(band) — *the limit* | +3.67 | +0.02 | hedges, refuses ~4/6 |
 | **additive ablate, k=1, band** | **−2.99** | **+0.10** | **complies 6/6, coherent** |
-| additive ablate, k=8, band | +0.32 | +2.33 | **broken** — incoherent gibberish |
+| additive ablate, k=8 (SVD), band | +0.32 | +2.33 | **broken** — incoherent gibberish |
 
-k=1 additive ablation de-refuses **every** prompt — including the racism/threat/bomb
-prompts the rotation band still refused — at a negligible coherence cost (+0.10 NLL
-on a 15-sentence neutral corpus). **The actuator change is the whole fix.** This
-directly solves the AS limit on Gemma.
-
-(Mechanistically this is multi-layer directional ablation, à la Arditi et al.; the
-contribution here is *not* "we invented ablation" — see §5 — but that the actuator
-swap is what unblocks Gemma, and the open frontier it creates.)
+k=1 additive ablation de-refuses every prompt at a negligible coherence cost.
+**The actuator change is the whole fix** (lever L1). But the k=8 row is the open
+wound: a *multi-dimensional* subspace ablation **destroyed coherence** — because the
+top-k SVD-of-mean-diffs span is **not refusal-specific** (it sweeps in
+capability-bearing directions). That is lever **L2**, and it is what this iteration
+addresses.
 
 ## 2. The four levers (status)
 
 | | lever | status | evidence |
 |---|---|---|---|
-| **L1** | additive (norm-CHANGING) actuator instead of rotation | **VALIDATED** | k=1 band de-refuses Gemma cleanly (table above) |
-| **L2** | k-dim refusal *subspace* instead of the 2D plane | **NEGATIVE as built / open** | k=8 top-SVD subspace destroys coherence (+2.33 NLL, gibberish) without de-refusing |
-| **L5** | bounded per-layer ‖u‖ = explicit coherence knob | **untested at the binding regime** | the ½-strength cap did not bind at k=1 (half ≡ full) |
-| **(PTS)** | k×k plant + MPC to **distribute** the additive push over the band | **untested for additive** | the machinery PTS built, now with an actuator it can actually shape |
+| **L1** | additive (norm-CHANGING) actuator instead of rotation | **VALIDATED** | at convergence k=1 de-refuses strongly (StrongREJECT 0.69–0.71) at ~zero coherence tax |
+| **L2** | k-dim refusal **concept cone** instead of the 2D plane / blunt SVD span | **RESCUED (decisive on coherence; ≈k=1 on bare de-refusal)** | the retain-loss cone is a strong, coherent jailbreak at k=4 (StrongREJECT **0.68**, ΔNLL **−0.71**, genNLL 1.1) where the blunt SVD span is gibberish (StrongREJECT **≈0**, ΔNLL +1.9, genNLL 2.2). Bare k=4 ≈ best k=1; the k>1 payoff needs the MPC (§4) |
+| **L5** | bounded per-layer ‖u‖ = explicit coherence knob | **shapes the best operating point** | the bounded-`u` MPC (§4 Exp 3) trades a little first-token margin for the lowest coherence tax (−0.41) and the *highest* StrongREJECT (0.76) |
+| **(PTS)** | k×k plant + MPC to **distribute** the additive push over the band | **GENERALIZED & the headline win** | k-dim cone plant R²≈0.999; bounded-`u` additive MPC gives the single best behaviour/coherence point of all conditions — the apparatus PTS's verdict named, now load-bearing on an additive actuator |
 
-**Why L2 backfired (the honest read):** the subspace was the top-k right singular
-vectors of the per-layer mean-difference directions. That span is **not** a pure
-refusal subspace — it sweeps in capability-bearing directions, so projecting all 8
-out at *every* band layer guts the model. So "diffuse refusal ⇒ need k>1" is **not**
-supported by this blunt test; on Gemma-2-2b, k=1 multi-layer ablation is sufficient
-and best. A genuine k>1 win requires a refusal-*specific* subspace.
+**Why L2 backfired, and the fix (the concept cone).** The blunt subspace was the
+top-k right singular vectors of the per-layer mean-difference directions. That span
+is **not** a pure refusal subspace, so projecting all k out at every band layer guts
+the model. The principled fix is a **refusal-specific** subspace, which is exactly
+what Wollschläger et al., *"The Geometry of Refusal in LLMs: Concept Cones and
+Representational Independence"* (ICML 2025, `papers/The Geometry of Refusal in LLM.pdf`)
+provides:
+
+- **RDO (Refusal Direction Optimization, Alg. 1):** find a direction by gradient
+  descent under three losses — an **ablation** loss (ablating it answers harmful
+  prompts), an **addition** loss (adding it refuses harmless prompts), and a
+  **retain** loss `KL(f(safe) ‖ f_ablate(safe))` that *forbids the intervention from
+  changing behaviour on harmless prompts*. **The retain loss is the missing
+  ingredient**: it makes the direction refusal-specific, which is precisely the
+  property the blunt SVD span lacks and the reason it gutted coherence.
+- **RCO (Refusal Cone Optimization, Alg. 2):** an orthonormal basis `B=[b₁..b_k]`
+  whose **non-negative span** — the *concept cone* `{Σ λᵢbᵢ : λᵢ ≥ 0}` — is entirely
+  refusal-mediating. So we steer inside a refusal cone, not the noisy AS plane. The
+  paper reports Gemma-2-2b supports cones up to **k≈4** (ASR plateaus at 4).
 
 ## 3. Method
 
-Actuator at each band layer `j`, on the residual-stream output `h_j ∈ ℝ^d`, given a
-refusal subspace `U ∈ ℝ^{k×d}` (orthonormal rows):
+**Actuator** (`casa_actuator.ConeActuator`) at each band layer `j`, on the
+residual-stream output `h_j ∈ ℝ^d`, given a refusal cone basis `U ∈ ℝ^{k×d}`
+(orthonormal rows, oriented so a positive coordinate = more refusal):
 
 ```
-p = U h_j                          # in-subspace coordinate (k-dim)
-u = clip(−p, ‖u‖ ≤ u_max)          # remove it, bounded (L5 knob)
+p = U h_j                          # in-cone coordinate (k-dim)
+u = clip(−ρ·p, ‖u‖ ≤ u_max)        # remove it, bounded (levers L5, ρ)
 h_j' = h_j + Uᵀ u                  # additive, norm-CHANGING
 ```
 
-- `u_max = ∞` → exact projection-out `h' = h − UᵀU h` (full ablation).
+- `u_max = ∞, ρ = 1` → exact projection-out `h' = h − UᵀU h` (full ablation).
 - finite `u_max` → partial removal; `u_max` is the coherence dial (L5).
-- `k = 1` → constrained directional ablation along the refusal axis.
-- **Distributed (MPC) variant:** rather than removing the full coordinate at every
-  layer, use the k×k plant `c_{k+1} ≈ A_k c_k + b_k` (PTS's validated 2×2 plant,
-  generalized to k dims) and a bounded-`u` MPC to spread the removal across the band
-  — minimal total perturbation that drives the late-layer refusal coordinate to ~0.
-  This is the first place PTS's lookahead/constraint apparatus has a non-norm-
-  preserving actuator to act on.
+- `cone_clip` → remove only the non-negative (in-cone) part of `p` — *steer the
+  activation to the cone boundary* instead of fully out of span(U).
+- `mode="add"` → activation addition of a unit cone vector (induce refusal; the
+  bidirectional, graded control "inside the concept cone").
 
-## 4. Experiments (kill-fast ordering)
+**Cone discovery** (`casa_cone.py`): `rdo()` (single direction) and `rco(dim=k)`
+(the cone) implement Algorithms 1–2 with differentiable ablation/addition forward
+passes, the three losses, λ≥0 Monte-Carlo cone sampling, and a Gram–Schmidt
+re-projection each step. Convergence machinery: cosine LR decay + **best-of-last-K**
+basis selection by held-out de-refusal margin (the paper's last-20-step selection).
+Targets follow the paper's recipe (`t_answer` via ablation, `t_retain` clean,
+`t_refusal` via addition) but are bootstrapped from the **strongest k=1 de-refuser**
+chosen by validation margin — on Gemma the single-layer DIM only hedges, which would
+cap the trained direction at a hedge, so we pick the band's top-SVD direction
+(val margin −2.8 vs DIM +1.8) and the cone learns to *comply*, not hedge. Baselines
+`dim_directions` and `svd_subspace` (the failed L2) are built for head-to-head
+comparison.
 
-The PTS lesson is baked in: **define the behavioral metric + the trivial baseline
-first, and frame each experiment to kill CASA fast.** The trivial baseline is *blunt
-k=1 full-band ablation* (the §1 win). Every added mechanism must beat it on the
-behavior/coherence Pareto or it is dead weight (exactly what sank PTS).
+**Distributed (MPC) variant** (`casa_control.py`): rather than removing the full
+coordinate at every layer, generalize PTS's validated affine plant
+`c_{k+1} ≈ A_k c_k + b_k` to the **k-dim cone coordinate** `c = B h`, and use a
+bounded-`u` MPC to spread the additive removal across the band — minimal total
+perturbation that drives the late-band cone coordinate to the harmless reference.
+**Crucially the actuator is additive (`B_ctrl = I`) with no angle conversion**, so
+the 2D-collapse that made PTS inert does not occur. This is the first place PTS's
+lookahead/constraint apparatus has a non-norm-preserving actuator to act on.
 
-1. **k × u_max frontier.** `k ∈ {1,2,3,4,6,8} × u_max ∈ {full, ¾, ½, ¼}·pscale`.
-   Plot the (de-refusal margin) vs (neutral-corpus coherence tax) Pareto. *Kill
-   condition:* if blunt k=1-full already sits on the frontier at near-zero tax (these
-   results suggest it does), L5 and k>1 add nothing — report and stop.
-2. **Refusal-specific subspace (rescue L2).** Replace top-SVD-of-mean-diffs with
-   (a) independent diff-in-means from *multiple* contrastive datasets, or
-   (b) directions orthogonalized against a capability/coherence basis (drop any
-   component that moves the neutral corpus). Re-test whether a *clean* k>1 subspace
-   de-refuses more *completely/robustly* than k=1 without the coherence collapse.
-   *Kill condition:* if the clean k>1 subspace still doesn't beat k=1 on completeness
-   at equal tax, L2 is dead for this model class.
-3. **Distributed (MPC) additive push.** k×k plant + bounded-`u` MPC vs blunt every-
-   layer removal, at matched final margin. *Win condition:* lower total coherence tax
-   (or robustness to plant perturbation, à la OAS Exp 4) at equal de-refusal. *Kill
-   condition:* same margin & tax as blunt removal → PTS failure mode again, drop it.
-4. **Generalization.** Reproduce the k=1-band win on Gemma-2-9b and a Llama; confirm
-   it is not 2B-specific. Replace the 15-sentence NLL proxy with a real coherence/
-   capability suite (e.g., a held-out neutral set + a small benchmark), not just
-   first-token margin.
+## 4. Experiments & results (summary — full record in `CASA_RESULTS.md`)
+
+`python casa_experiment.py --model google/gemma-2-2b-it --full --mpc --max-new-tokens 256`
+(Gemma-2-2b, band 7–24, full convergence: 160 steps, n_target=128, best-of-32
+selection). Behaviour is the **StrongREJECT fine-tuned judge** on 256-token gens; two
+coherence axes (neutral ΔNLL, genNLL). Substring-ASR is uninformative here (≈1.0 for
+all de-refusing conditions) and is shown only to make that point.
+
+| condition | k | margin↓ | neutral ΔNLL | **StrongREJECT** ↑ | read |
+|---|--:|--:|--:|--:|---|
+| SVD k=1 (band) | 1 | −2.94 | +0.10 | 0.689 | k=1 baseline, strong |
+| **SVD k=2/4/8** (blunt) | 2–8 | ~0 | **+1.5→2.3** | **≈0** | **gibberish — the L2 failure** |
+| RDO k=1 | 1 | −4.43 | −0.07 | 0.707 | trained k=1 |
+| **CONE k=4** | 4 | −7.72 | **−0.71** | **0.675** | **coherent strong jailbreak** |
+| **CONE k=4 + MPC** | 4 | −5.6 | **−0.41** | **0.764** | **best of all** |
+
+cone plant R²: 1-step **0.9994** (PTS 2×2 ≈0.999). Three findings:
+
+- **Exp 1 / 2 — L2 rescued, decisive on coherence.** The blunt SVD subspace at k≥2 is
+  gibberish (StrongREJECT ≈0, +1.5→2.3 ΔNLL); the retain-loss **concept cone (k=4)** is
+  a strong, coherent jailbreak (0.68, **negative** tax) — a refusal-specific k>1
+  subspace works precisely where a blunt one fails. **But bare k>1 ≈ best k=1** (0.68 vs
+  0.69–0.71): dimensionality alone does not beat k=1, so the paper's k≥4 ASR gain does
+  *not* reproduce in CASA's band+additive setup — reported straight.
+- **Exp 3 — the win is the full stack.** Cone **+** bounded-`u` additive MPC gives the
+  single best behaviour/coherence point of all (0.76 at −0.41 tax). The MPC apparatus
+  that was *inert* on PTS's rotation actuator is *load-bearing* on the additive one.
+- **Proxy/length lessons.** First-token margin favours the cone far beyond its
+  behavioural edge (only the judge reveals bare-cone≈k=1); a 64-token eval understated
+  all harm to ~0.1 and made margin disagree with the judge (kept as `outputs/*_64tok.*`).
+  Judge behaviour at realistic length with a real judge — never a first-token proxy.
+
+→ Full table, per-experiment analysis, generations, limitations, and reproduction:
+**`CASA_RESULTS.md`**.
 
 ## 5. Honest threats & novelty boundary
 
 - **The basic de-refusal is known.** Multi-layer directional ablation is established
-  (Arditi et al., 2024). CASA's claim to novelty is narrowly the **constrained,
-  dynamics-aware k>1 coherence frontier**: can control machinery (the ‖u‖ bound + the
-  plant + MPC) buy a *more complete or more robust* intervention than blunt ablation
-  *at equal coherence cost*? If not, CASA reduces to "ablation works on Gemma," which
-  is a useful confirmation but not a new method.
-- **The PTS trap, again.** If a per-layer scalar cap on k=1 already saturates de-
-  refusal at ~zero tax, the plant/MPC are inert — the same proxy-vs-behavior collapse
-  that made PTS a negative result. Experiment 1 is designed to detect this in the
-  first run.
-- **Single-direction-single-layer is weak on Gemma (~3%, lit.); our authority comes
-  from the band.** Be precise in write-ups: the lever is *multi-layer* k=1 ablation,
-  not a magic single direction.
-- **Measure behavior + real capability first.** Not control-internal proxies.
+  (Arditi et al., 2024). CASA's contribution is the **control framing, now with
+  behavioural evidence**: (a) the *actuator* (additive vs rotation) is the Gemma
+  bottleneck; (b) a refusal-specific **concept cone** (the retain loss) makes a k>1
+  subspace a strong, coherent jailbreak (StrongREJECT 0.68 at negative tax) where a
+  blunt one is gibberish (≈0); (c) a k-dim plant + bounded-`u` additive MPC delivers
+  the best behaviour/coherence point of all (0.76). What is **not** claimed: that
+  dimensionality alone beats k=1 — bare cone ≈ best k=1, reported as such.
+- **The PTS trap, avoided by construction.** Behaviour is the **StrongREJECT
+  fine-tuned judge** (the paper's, exact template) on full-length generations, plus
+  two coherence axes (neutral ΔNLL + genNLL). Substring-ASR is shown only to
+  demonstrate it is *uninformative* (uniform ≈1.0). The earlier 64-token run is kept
+  (`outputs/*_64tok.*`) precisely to document how a length/proxy artifact can mislead.
+- **Absolute scale & generality.** Best StrongREJECT ≈0.76 on Gemma-2-2b is a strong
+  but not saturated jailbreak; single-cone band ablation does not fully break the
+  model. Single model / single judge / n_obs=40 — the MPC's ~0.05–0.09 edge over bare
+  k=1 is consistent across both `u_max` settings but modest at this n; multi-model +
+  rubric-judge replication is the next step.
+- **Targets bootstrap from an existing attack** (the band's top-SVD direction). The
+  cone is trained against SVD-generated targets, so it inherits that attack's ceiling;
+  a stronger seed (e.g. GCG) could raise all trained conditions.
 
 ## 6. Relationship to the other proposals
 
 - **PTS** (verified negative): same plant + MPC + constraint, *norm-preserving*
-  actuator → no behavioral gain. CASA is PTS with L1 swapped in; PTS's verdict
-  explicitly named this as the open lever.
+  actuator → no behavioural gain. CASA is PTS with L1 (additive) + L2 (cone) swapped
+  in; PTS's verdict named exactly this lever, and Exp 3 **vindicates it** — the same
+  bounded-`u` MPC apparatus that was inert on the rotation actuator gives the best
+  behaviour/coherence point of all on the additive cone actuator (StrongREJECT 0.76).
+  The durable PTS plant (now generalized to k dims, R²≈0.999) is what made it cheap.
 - **OAS** (active): observer + soft-landing LQR over a band, still the rotation
-  actuator. CASA's L1 could be dropped into OAS's controller (ablation-magnitude as
-  the LQR control), making the observer/soft-landing story apply to a *moving*
-  actuator on Gemma — a possible merge if CASA's L5/MPC earn their place.
+  actuator. CASA's additive cone actuator could drop into OAS's controller
+  (ablation-magnitude as the LQR control) — a possible merge.
 - **SO2** (active): energy/Lyapunov state-feedback, also rotation-based; orthogonal.
+
+## 7. Modules
+
+| File | What it is | Self-test |
+|------|-----------|-----------|
+| `casa_actuator.py` | Bounded, k-dim, bidirectional cone actuator (L1+L5+ρ+cone_clip) | `python casa_actuator.py` (8 checks) |
+| `casa_cone.py` | RDO + RCO concept-cone discovery (Alg. 1–2) + DIM/SVD baselines; cosine LR + best-of-K selection | `python casa_cone.py` (synthetic) |
+| `casa_control.py` | k-dim cone plant + bounded-u additive MPC (PTS's 2×2 generalized) | `python casa_control.py` (k∈{1,3,4}) |
+| `casa_judge.py` | StrongREJECT fine-tuned judge (qylu4156/strongreject-15k-v1, exact template) | `python casa_judge.py` |
+| `casa_experiment.py` | L2-rescue + Exp-3 driver; `--full` (convergence+judge), `--quick`, `--load-subspaces` | `--quick` smoke mode |
+| `casa_plot.py` | Behaviour/coherence Pareto figure (StrongREJECT axis) | reads the JSON |
+
+## References
+
+- Wollschläger, Elstner, Geisler, Cohen-Addad, Günnemann, Gasteiger. *The Geometry
+  of Refusal in Large Language Models: Concept Cones and Representational
+  Independence.* ICML 2025. (`papers/The Geometry of Refusal in LLM.pdf`)
+- Arditi et al. *Refusal in Language Models Is Mediated by a Single Direction.* 2024.
+- Vu & Nguyen. *Angular Steering: Behavior Control via Rotation in Activation Space.*
+  NeurIPS 2025.
