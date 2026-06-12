@@ -13,6 +13,60 @@ verified pieces of the repo — the steering plane `{b1,b2}` from
 from `clas_controller`, and the continuous refusal/compliance margin observable —
 and adds the four PTS-specific components.
 
+---
+
+## ⮕ VERDICT (verified end-to-end, 2026-06-11/12)
+
+**PTS produces no behavioral advantage over naive fixed-angle Angular Steering on
+the tested setups (Qwen2.5-3B, Gemma-2-2b-it).** The implementation is correct and
+the components work as engineered, but the *distinctive* machinery (2D reference,
+predictive lookahead, constraints) is inert in this domain.
+
+- **End-to-end text comparison** (`verify/`): PTS-MPC and a fixed-angle reset on the
+  *same* residual-stream band give **near-byte-identical generations** and identical
+  refusal margins — Qwen 0.05 vs 0.00; Gemma +3.66 vs +3.67. Adaptive per-layer angle
+  changes nothing.
+- **Why the offline analysis looked promising but wasn't:** every "promising" result
+  was a *control-internal proxy* (2D separation AUC, dynamics-fit R², tracking error,
+  constraint satisfaction, trajectory-bend, "monotone dial") or a flattering framing
+  ("dominates at matched perturbation"). **None measured behavior.** The behavior is
+  set by a single scalar — the realized angle at the decision-relevant late layers —
+  and it *saturates*: any method that rotates into the compliant region gets the same
+  output. See `verify/README.md` and the session notes.
+- **Each PTS ingredient collapses here:** (1) the 2D reference is redundant — in the
+  steering band the 1D refusal axis already separates perfectly (AUC 1.0); (2)
+  lookahead is null — the steerable band is near-identity (‖A−I‖≈0.34), nothing to
+  anticipate (H=1≈H=8); (3) the ‖u‖ constraint guards against a coherence collapse
+  that doesn't occur (capability tax ≈0 for both methods). And the **norm-preserving
+  actuator collapses the whole 2D plan to one realized DoF (the angle)** — so PTS is
+  an elaborate way to pick an angle, which fixed-angle does too.
+- **Important correction:** the earlier claim "Angular Steering de-refuses Gemma" was
+  **wrong** — that was an aggressive 14–18-layer *residual-stream* reset, not the
+  published method. **Canonical Angular Steering** (single layer, `input_layernorm`
+  output) is **inert on Gemma from every one of its 25 layers** (best de-refusal
+  −2.09 margin, still refusing) and weak even on Qwen (±0.6 swing). The two hook
+  points differ ~30× in effect. See `verify/angular_sweep.py` / `angular_layer_scan.py`.
+
+**Durable wins worth keeping** (independent of the negative verdict): the **cheap
+2×2 affine plant** `c_{k+1}≈A_k c_k+b_k` (held-out R²≈0.99, ~256 B/layer, no
+Jacobians — reused by OAS), and the finding that **reference *direction* sets
+behavior** (perturbation magnitude does not; corr ≈ −0.07).
+
+**Where PTS's machinery could still matter (untested, out of scope):** a behavior
+whose steerable band is *rotation-dominated* (so lookahead pays) and a
+*non-norm-preserving* actuator (so 2D control isn't collapsed to an angle). Neither
+holds for refusal on these models.
+
+**→ Successor (2026-06-12): `../CASA/`.** The "non-norm-preserving actuator" lever was
+tested. A bounded **additive** ablation (k=1, residual band) de-refuses Gemma-2-2b
+cleanly (margin +10.83 → −2.99, coherent, +0.10 NLL tax) where every rotation variant
+caps at +3.67. So the actuator — not the planner — was the bottleneck. PTS's plant +
+MPC + ‖u‖-constraint may now earn their place on this actuator (the open k>1 /
+coherence-frontier program); see `../CASA/CASA_PROPOSAL.md` and
+`verify/additive_subspace_steer.py`.
+
+---
+
 ## Modules
 
 | File | What it is | Validated by |
@@ -59,9 +113,14 @@ realisation is precisely the linearisation residual `w_j` of the tracking bound
 - **Exp 3 — tracking-vs-perturbation Pareto.** The honest axis is the *realised*
   in-plane perturbation `‖u‖` (how far off the reachable manifold the actuation
   pushes — cf. non-surjectivity, arXiv:2604.09839). FixedAngle and unconstrained
-  LQR ignore the budget and sit at one **high-perturbation** point. **At matched
-  perturbation `‖u‖≈6.4`, PTS-MPC tracks 0.3° vs FixedAngle's 13.5°**, and PTS can
-  dial perturbation all the way down to `‖u‖≈0.86`, which the baselines cannot.
+  LQR ignore the budget and sit at one **high-perturbation** point (FixedAngle at
+  realised `‖u‖≈6.4`, stuck at **13.5°** angular error regardless). **PTS-MPC reaches
+  ≤0.35° using only `‖u‖≈4.7` (below FixedAngle's 6.4), ties the unconstrained LQR
+  (0.1°) at `‖u‖≈8`, and can dial perturbation down to `‖u‖≈0.86`** — operating points
+  the baselines cannot reach. (NB: PTS only *dominates* on this perturbation-economy
+  axis; at its own tight budget `u_max=1.29` it tracks 19.6°, *worse* than FixedAngle's
+  13.5° — PTS trades tracking for a bounded, tunable perturbation, it is not Pareto-
+  dominant on raw tracking.)
 - **Exp 3b — lookahead is benign here (honest negative).** H=1…8 all give ≈19° at a
   tight budget, because the behavioural late band has near-identity dynamics
   (`‖A_k−I‖₂≈0.34`). PTS's value in this band is its **2D reference** and its

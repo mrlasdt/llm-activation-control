@@ -18,16 +18,30 @@ code + outputs.
 | Dir | Proposal | Control paradigm | Status |
 |-----|----------|------------------|--------|
 | `SO2/` | Angular Steering as Control on SO(2) | energy/Lyapunov **state-feedback over depth** (pendulum: φ, ω, separatrix) | active — phase-portrait experiments implemented (`phase_portrait.ipynb`, `steering_validation.ipynb`) |
-| `PTS/` | Predictive Trajectory Steering | **predictive MPC** tracking a 2D reference trajectory | active — implemented & self-tested (`pts_*.py`, dependency-free QP/MPC) |
-| `OAS/` | Observer-Based, Soft-Landing Angular Steering | depth-domain **LQG** (Kalman observer + terminal-target LQR) | active — proposal only; code TBD |
+| `PTS/` | Predictive Trajectory Steering | **predictive MPC** tracking a 2D reference trajectory | **verified negative (2026-06-12)** — implemented & self-tested (`pts_*.py`, dependency-free QP/MPC), but end-to-end **PTS ≈ naive fixed-angle** (no behavioural gain; Qwen+Gemma). Durable spinoff: the 2×2 plant. See `PTS/PTS_README.md` **Verdict** + `PTS/verify/` |
+| `OAS/` | Observer-Based, Soft-Landing Angular Steering | depth-domain **LQG** (Kalman observer + terminal-target LQR) | active — implemented & self-tested (`oas_*.py`: `oas_lqr`, `oas_observer`, `oas_controller`, `oas_offline`, `oas_prototype`, `oas_plot`); offline validated, prototype smoke-tested. See `OAS/README.md` + `OAS/OAS_SPEC.md` |
+| `CASA/` | Constrained Additive Subspace Ablation | **norm-CHANGING** bounded ablation of a k-dim refusal subspace over a band (+ optional plant/MPC) | active — **headline validated (2026-06-12)**: the additive salvage of PTS. Swapping rotation → additive k=1 band-ablation **de-refuses Gemma-2-2b cleanly** (margin +10.83→−2.99, coherent, +0.10 NLL tax) where every rotation variant fails. k>1 / constrained / MPC frontier is the open program. Prototype: `PTS/verify/additive_subspace_steer.py`. See `CASA/CASA_PROPOSAL.md` |
 | `CLAS/` | Closed-Loop Angular Steering | per-token **output-feedback** thermostat | **DROPPED 2026-06-09** — see `CLAS/README.md` |
 
 ## Shared empirical facts (Qwen2.5-3B-Instruct)
 
-- Auto-selected steer layer ≈ **27 of 36**. The **refusal** direction has strong angular-steering
-  authority (`G(θ)` range ~18, flips behavior); subtle/sustained attributes (e.g. sentiment)
-  have negligible authority — this is what dropped CLAS.
+- Auto-selected steer layer ≈ **27 of 36**. The **refusal** direction has strong authority
+  (`G(θ)` range ~18, flips behavior) **at the residual-stream hook**; subtle/sustained attributes
+  (e.g. sentiment) have negligible authority — this is what dropped CLAS.
+- **Two non-interchangeable hook points (verified 2026-06-11, `PTS/verify/`):** (a) *canonical
+  Angular Steering* hooks `model.layers.{L}.input_layernorm` output (single layer) and is **nearly
+  inert** — angle sweep moves the refusal margin only ±0.6 on Qwen, ±0.13 on Gemma, generations
+  still refuse (Gemma: inert from *all* 25 layers); (b) the *residual-stream reset* (`model.layers.{k}`
+  output — what CLAS/PTS/OAS use) is what actually flips behavior. The "`G(θ)` range ~18" above is (b).
 - Per-layer in-plane dynamics are well-modeled by a **2×2 affine** map `c_{k+1}=A_k c_k+b_k`
   (held-out R²≈0.999), validated by PTS — the plant OAS's LQG reuses.
 - The angular actuator is a **norm-preserving absolute-angle reset** (sets the in-plane angle,
   drops magnitude) — central caveat across PTS/OAS.
+- **The actuator, not the planner, is the Gemma bottleneck (verified 2026-06-12, `CASA/`).**
+  Every rotation variant (canonical AS, residual band, PTS adaptive angle, OAS soft-landing)
+  caps out on Gemma-2-2b — best margin +3.67, still hedging. A **norm-CHANGING additive**
+  actuator — bounded directional ablation of the refusal axis (k=1) across the discriminative
+  band — flips it to **−2.99 with coherent compliance** at +0.10 NLL coherence tax. So Gemma
+  *is* steerable; AS just couldn't reach it because rotation collapses the plan to one DoF.
+  (k=8 blunt subspace ablation backfires — destroys coherence; the subspace isn't
+  refusal-specific.) This is the `CASA/` direction, and the open lever PTS's verdict named.
