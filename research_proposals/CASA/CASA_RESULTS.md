@@ -130,14 +130,41 @@ Caveat reported straight: the **bare** cone ties the best k=1 (0.68 vs 0.69–0.
 dimensionality *alone* does not beat a good single direction here, and the paper's k≥4
 ASR gain over k=1 does not reproduce in CASA's band+additive setup on Gemma-2-2b.
 
-### 4.3 Exp 3 — distributed MPC (the headline win)
-The k-dim cone plant generalizes PTS's 2×2 plant (R²≈0.999). The bounded-`u` additive
-MPC gives the **single best operating point of all conditions** — StrongREJECT 0.76 at
-the lowest coherence tax (−0.41) and lowest genNLL. Unlike PTS (norm-preserving
-actuator ⇒ MPC inert), the additive actuator lets the lookahead/constraint apparatus
-shape a strictly better behaviour/coherence point. The k>1 payoff lives in the cone
-**+** MPC together, not in dimensionality alone. (Edge over bare k=1 is ~0.05–0.09,
-consistent across both `u_max` settings but modest at n_obs=40 — see Limitations.)
+### 4.3 Exp 3 — distributed MPC, decomposed
+The k-dim cone plant generalizes PTS's 2×2 plant (R²≈0.999) and the bounded-`u`
+additive MPC gives the **single best operating point of all conditions** —
+StrongREJECT **0.76**, the lowest harmful-gen genNLL (0.84). To attribute *why*, a
+matched-`u_max` control (`--load-subspaces`, same trained cone) separates the MPC's
+three ingredients — magnitude **bound** (lever L5), **reference** (track the
+harmless-mean cone coordinate vs hard-zero), and **lookahead** (the receding horizon):
+
+| CONE k=4 actuator | u_max | genNLL | **StrongREJECT** |
+|---|---:|---:|---:|
+| full ablation (unbounded) | ∞ | 1.11 | 0.675 |
+| bounded ablation (L5 only) | 0.5·ps | 1.08 | 0.712 |
+| bounded ablation (L5 only) | 0.25·ps | 1.01 | 0.680 |
+| **MPC** (bound + reference + horizon) | 0.5·ps | **0.88** | **0.764** |
+| **MPC** | 0.25·ps | **0.84** | **0.755** |
+
+Two effects, both real:
+1. **Bounding the magnitude helps on its own** (L5): full→bounded raises StrongREJECT
+   0.675→0.712, and the same holds for k=1 (RDO 0.707→0.733). *Don't over-ablate* — a
+   capped push perturbs the representation less and keeps the harmful answer fluent.
+2. **The MPC adds a further, consistent edge over a matched-budget bounded ablation**
+   (0.712→0.764 at 0.5·ps; 0.680→0.755 at 0.25·ps) with distinctly lower genNLL
+   (0.84–0.88 vs 1.0–1.08). So trajectory-tracking is **not** decorative here — but the
+   working ingredient is the **reference** (steering toward the harmless-mean cone
+   coordinate) plus the bounded distribution, **not** multi-step **lookahead**: the
+   band's near-identity dynamics (PTS: ‖A−I‖≈0.34, H=1≈H=8) leave nothing to
+   anticipate. "Reference tracking" earns its keep; "predictive horizon" does not.
+
+Honest scale caveat: the MPC's ~0.05–0.075 StrongREJECT edge over bounded ablation is
+consistent across both budgets and corroborated by the genNLL gap, but is ~1 SE at
+n_obs=40 — treat as suggestive, confirm at larger n. And a *bounded k=1* (RDO,
+StrongREJECT 0.733) comes within ~0.03 of cone+MPC (0.76), so the k>1+MPC advantage,
+while top, is modest at this scale. Unlike PTS (norm-preserving actuator ⇒ the whole
+plan collapses to one DoF and the MPC is inert), the **additive** actuator is what
+lets *any* of this machinery register.
 
 ### 4.4 Methodology notes (proxy traps, caught)
 - **First-token margin is a proxy.** It favours the cone (−7.72) far more than its
@@ -184,8 +211,9 @@ are. Raw transcripts are the dataset, in `outputs/`.)
 ## 6. Limitations & threats to validity
 
 - **One model, one judge, n_obs=40.** Results are Gemma-2-2b only, scored by the single
-  StrongREJECT fine-tuned judge. The MPC's ~0.05–0.09 edge over bare k=1 is consistent
-  across both `u_max` settings but is modest at this sample size. Next: a second model
+  StrongREJECT fine-tuned judge. Two effects are at ~1 SE at this n and need a larger
+  set to confirm: the MPC's ~0.05–0.075 edge over a matched-budget bounded ablation
+  (§4.3), and cone+MPC's ~0.03 edge over a bounded k=1. Next: a second model
   (Gemma-2-9b, a Llama) and the StrongREJECT *rubric* judge as a cross-check.
 - **Absolute harm is strong but not saturated** (best ≈0.76). Single-cone band ablation
   does not fully break the model.

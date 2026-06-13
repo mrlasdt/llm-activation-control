@@ -205,6 +205,11 @@ class ConeMPC:
         if not self._cqp:
             raise ValueError("no actuated layer has a positive horizon")
 
+    def reset(self):
+        """No-op: the MPC is stateless (re-solves each call). Present so it satisfies the
+        same controller contract as the stateful ConePID for make_controller_hooks."""
+        pass
+
     def control(self, k, xi):
         """Additive first control u_0:(...,k) for measured cone coordinate xi:(...,k)."""
         if k not in self._cqp:
@@ -221,14 +226,19 @@ class ConeMPC:
 # =============================================================================
 
 
-def make_distributed_hooks(module_dict, band, B, mpc: ConeMPC):
-    """Forward hooks that, at each band layer, measure the cone coordinate
-    c = B h, ask the MPC for the additive control u0, and apply h += u0 @ B.
+def make_controller_hooks(module_dict, band, B, controller):
+    """Controller-agnostic forward hooks: at each band layer, measure the cone coordinate
+    c = B h, ask `controller.control(layer, xi)` for the additive control u0, apply h += u0 @ B.
 
-    B:(k,d) orthonormal cone basis (torch); applied across `band`. Unlike the blunt
-    actuator (which removes the full coordinate every layer), the MPC distributes a
-    bounded push so the late-band coordinate reaches the reference (e.g. 0)."""
+    `controller` is ANY object exposing `.control(layer, xi:(M,k)) -> u0:(M,k)` (and optionally
+    `.reset()`). This is the single deployment surface shared by ConeMPC, ConeLQR, ConePID and
+    the RecordingController wrapper, so the head-to-head varies only the control law.
+
+    B:(k,d) orthonormal cone basis (torch); applied across `band`. Stateful controllers (PID)
+    reset themselves when they see the first band layer (the forward pass enters the band there)."""
     layerset = set(band)
+    if hasattr(controller, "reset"):
+        controller.reset()
 
     def mk(layer):
         def hook(mod, inp, out):
@@ -239,7 +249,7 @@ def make_distributed_hooks(module_dict, band, B, mpc: ConeMPC):
             c = (h @ Bd.t())                                  # (B,S,k)
             shp = c.shape
             xi = c.reshape(-1, shp[-1]).float().cpu().numpy()
-            u0 = mpc.control(layer, xi)                       # (M,k)
+            u0 = controller.control(layer, xi)                # (M,k)
             u = torch.from_numpy(np.ascontiguousarray(u0)).to(h.device, h.dtype)
             u = u.reshape(shp)
             steered = h + u @ Bd
@@ -247,6 +257,12 @@ def make_distributed_hooks(module_dict, band, B, mpc: ConeMPC):
         return hook
 
     return [(module_dict[f"model.layers.{j}"], mk(j)) for j in band]
+
+
+# back-compat alias (ConeMPC is the original consumer)
+def make_distributed_hooks(module_dict, band, B, mpc: ConeMPC):
+    """Deprecated name for make_controller_hooks (kept so existing callers keep working)."""
+    return make_controller_hooks(module_dict, band, B, mpc)
 
 
 # =============================================================================

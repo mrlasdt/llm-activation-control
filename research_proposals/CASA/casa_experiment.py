@@ -130,6 +130,13 @@ def main():
     ap.add_argument("--mpc", action="store_true",
                     help="also test the distributed (k×k plant + bounded-u MPC) "
                          "actuator vs blunt every-layer ablation (Exp 3)")
+    ap.add_argument("--ladder", action="store_true",
+                    help="the fair control-law head-to-head on the SAME cone plant: "
+                         "P / PID / LQR / LQR+ff / MPC at matched u_max budgets "
+                         "(incl. unconstrained), logging realized effort")
+    ap.add_argument("--ctrl-umax-fracs", type=float, nargs="*", default=[1e9, 0.5, 0.25],
+                    help="u_max budgets (×pscale) for the --ladder controllers; "
+                         "1e9 = unconstrained (exposes the constrained↔unconstrained regime)")
     ap.add_argument("--judge", action="store_true",
                     help="score every condition's harmful generations with the "
                          "StrongREJECT fine-tuned judge (the behavioural ground truth)")
@@ -352,6 +359,7 @@ def main():
     print("\n" + "=" * 78)
     print(f"baseline: refusal margin {base_margin:+.2f}  neutralNLL {base_nll:.3f}")
     cond_texts = {}                                          # tag -> harmful generations (for the judge)
+    effort_by_tag = {}                                       # tag -> realized mean ‖u_l‖ (control-law rows)
     base_texts = generate(harmful_test[:args.n_obs], [])
     cond_texts["baseline"] = base_texts
     base_gen_nll = gen_coherence(harmful_test[:args.n_obs], base_texts)
@@ -383,34 +391,74 @@ def main():
         print(f"  {label:16s} {('inf' if umax>1e8 else f'{umax:.2f}'):>7s} {k:>2d} "
               f"{m:+8.2f} {nll-base_nll:+7.3f} {a:6.2f} {gnll:7.2f}")
 
-    # ---- Experiment 3: distributed (k×k plant + bounded-u MPC) vs blunt ablation ----
-    if args.mpc and args.rco_dims:
+    # ---- Experiment 3 / ladder: control LAW head-to-head on the SAME cone plant ----
+    # P / PID / LQR / LQR+ff / MPC share plant {A,b}, reference (harmless-mean coord), band,
+    # and per-token budget u_max; the control law is the only free variable. We sweep
+    # u_max incl. unconstrained (frac=1e9) to expose the constrained↔unconstrained regime
+    # (theory: unconstrained ⇒ MPC≈LQR; MPC's edge needs a binding constraint) and log
+    # realized mean ‖u_l‖ so behaviour is compared at matched effort.
+    if (args.mpc or args.ladder) and args.rco_dims:
         import casa_control as ctrl
+        from casa_baselines import ConeP, ConePID, ConeLQR, RecordingController
         kk = max(args.rco_dims)
-        mpc_label = f"CONE k={kk}"
-        Bm = orthonormalize(subspaces[mpc_label].to(device))         # (k,d) on device
+        base_label = f"CONE k={kk}"
+        Bm = orthonormalize(subspaces[base_label].to(device))         # (k,d) on device
         print(f"\n[Exp3] fitting k={Bm.shape[0]} cone plant on harmful trajectories ...")
         coords = cone_coords_all_layers(model, tokenizer, harmful_train[:args.n_fit], Bm, device)
         fit = ctrl.fit_cone_plant(coords)
+        A_, b_ = fit["A"], fit["b"]
         r2_1 = ctrl.plant_r2(coords, fit, horizon=1)
         r2_5 = ctrl.plant_r2(coords, fit, horizon=5)
         # reference: track the harmless-mean cone coordinate (PTS Option A, compliant)
         lmean_coord = (torch.from_numpy(lmean).float() @ Bm.cpu().t()).numpy()  # (L,k)
-        ps = pscale(subspaces[mpc_label])
+        ps = pscale(subspaces[base_label])
         print(f"[Exp3] cone plant R²: 1-step={r2_1:.4f}  5-step={r2_5:.4f}  "
               f"(PTS 2×2 was ≈0.999); pscale={ps:.2f}")
-        for frac in [0.5, 0.25]:
-            mpc = ctrl.ConeMPC(fit["A"], fit["b"], lmean_coord, layers=band, H=6,
-                               u_max=frac * ps, fista_iters=60)
-            hooks = ctrl.make_distributed_hooks(module_dict, band, Bm, mpc)
-            m = margin(hooks); nll = neutral_nll(hooks)
-            texts = generate(harmful_test[:args.n_obs], hooks)
-            a = asr(texts); gnll = gen_coherence(harmful_test[:args.n_obs], texts)
-            tag = f"{mpc_label}+MPC|umax={frac*ps:.2f}"
-            cond_texts[tag] = texts
-            rows.append((tag, f"{mpc_label}+MPC", kk, frac * ps, m, nll - base_nll, a, gnll))
-            print(f"  {mpc_label+'+MPC':16s} {frac*ps:>7.2f} {kk:>2d} "
-                  f"{m:+8.2f} {nll-base_nll:+7.3f} {a:6.2f} {gnll:7.2f}")
+
+        def make_ctrl(name, umax):
+            if name == "MPC":
+                return ctrl.ConeMPC(A_, b_, lmean_coord, layers=band, H=6,
+                                    q_pos=1.0, r_ctrl=0.05, u_max=umax, fista_iters=60)
+            if name == "P":
+                return ConeP(lmean_coord, band, kp=1.0, u_max=umax)
+            if name == "PID":
+                return ConePID(lmean_coord, band, kp=1.0, ki=0.1, kd=0.01,
+                               u_max=umax, i_reset=10)
+            if name == "LQR":
+                return ConeLQR(A_, b_, lmean_coord, band, q_pos=1.0, r_ctrl=0.05,
+                               u_max=umax, feedforward=False)
+            if name == "LQR+ff":
+                return ConeLQR(A_, b_, lmean_coord, band, q_pos=1.0, r_ctrl=0.05,
+                               u_max=umax, feedforward=True)
+            raise ValueError(name)
+
+        if args.ladder:
+            ctrl_names = ["P", "PID", "LQR", "LQR+ff", "MPC"]
+            fracs = list(args.ctrl_umax_fracs)
+        else:                                                 # legacy --mpc: MPC only, bounded
+            ctrl_names = ["MPC"]
+            fracs = [0.5, 0.25]
+
+        print(f"  {'controller':16s} {'umax':>7s} {'k':>2s} {'margin':>8s} "
+              f"{'NLLtax':>7s} {'ASR':>6s} {'genNLL':>7s} {'effort':>7s}")
+        for cname in ctrl_names:
+            for frac in fracs:
+                umax = None if frac > 1e8 else frac * ps
+                rc = RecordingController(make_ctrl(cname, umax))
+                hooks = ctrl.make_controller_hooks(module_dict, band, Bm, rc)
+                m = margin(hooks); nll = neutral_nll(hooks)
+                rc.reset_effort()                              # measure effort over generation
+                texts = generate(harmful_test[:args.n_obs], hooks)
+                a = asr(texts); gnll = gen_coherence(harmful_test[:args.n_obs], texts)
+                eff = rc.mean_effort
+                label = f"{base_label}+{cname}"
+                tag = f"{label}|umax={'inf' if umax is None else f'{umax:.2f}'}"
+                cond_texts[tag] = texts
+                effort_by_tag[tag] = eff
+                rows.append((tag, label, kk, (1e9 if umax is None else umax),
+                             m, nll - base_nll, a, gnll))
+                print(f"  {label:16s} {('inf' if umax is None else f'{umax:.2f}'):>7s} "
+                      f"{kk:>2d} {m:+8.2f} {nll-base_nll:+7.3f} {a:6.2f} {gnll:7.2f} {eff:7.2f}")
         meta_mpc = {"plant_r2_1step": r2_1, "plant_r2_5step": r2_5, "pscale": ps}
     else:
         meta_mpc = {}
@@ -467,6 +515,7 @@ def main():
     jrows = [{"tag": tag, "label": label, "k": k,
               "umax": (None if umax > 1e8 else umax), "margin": m,
               "nll_tax": tax, "asr": a, "gen_nll": gnll,
+              "realized_effort": effort_by_tag.get(tag),
               "sr_score": sr.get(tag, (None, None))[0],
               "sr_asr": sr.get(tag, (None, None))[1]}
              for tag, label, k, umax, m, tax, a, gnll in rows]

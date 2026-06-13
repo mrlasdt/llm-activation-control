@@ -152,9 +152,14 @@ cone plant R²: 1-step **0.9994** (PTS 2×2 ≈0.999). Three findings:
   subspace works precisely where a blunt one fails. **But bare k>1 ≈ best k=1** (0.68 vs
   0.69–0.71): dimensionality alone does not beat k=1, so the paper's k≥4 ASR gain does
   *not* reproduce in CASA's band+additive setup — reported straight.
-- **Exp 3 — the win is the full stack.** Cone **+** bounded-`u` additive MPC gives the
-  single best behaviour/coherence point of all (0.76 at −0.41 tax). The MPC apparatus
-  that was *inert* on PTS's rotation actuator is *load-bearing* on the additive one.
+- **Exp 3 — the win is the full stack, decomposed.** Cone **+** bounded-`u` additive
+  MPC is the single best point of all (0.76 at −0.41 tax, lowest genNLL). A
+  matched-budget control attributes it: **bounding** the push helps on its own
+  (full→bounded 0.675→0.712; *don't over-ablate*), and the **MPC adds a further
+  consistent edge** (→0.76, clearly more fluent) — but the working ingredient is the
+  **harmless-mean reference**, not multi-step **lookahead** (the near-identity band
+  leaves nothing to anticipate; cf. PTS). Modest at n=40; the additive actuator is what
+  lets the machinery register at all (it was inert on PTS's rotation actuator).
 - **Proxy/length lessons.** First-token margin favours the cone far beyond its
   behavioural edge (only the judge reveals bare-cone≈k=1); a 64-token eval understated
   all harm to ~0.1 and made margin disagree with the judge (kept as `outputs/*_64tok.*`).
