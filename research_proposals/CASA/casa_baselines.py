@@ -194,7 +194,11 @@ class ConeLQR:
 
 class RecordingController:
     """Wrap any controller to log realized control effort ‖u_l‖ per .control call, so the
-    head-to-head can report behaviour/coherence at *equal measured effort*, not just equal cap."""
+    head-to-head can report behaviour/coherence at *equal measured effort*, not just equal cap.
+
+    Also accumulates the mean **actuated** cone coordinate s_l = c_l + u_l per layer, so the
+    coherence SURROGATE (Σ_l Mahalanobis(s_l, on-manifold density)) can be measured per
+    condition and correlated with genNLL (CALM Phase 1 / `calm_mpc.mahalanobis_trajectory`)."""
 
     def __init__(self, inner):
         self.inner = inner
@@ -203,6 +207,7 @@ class RecordingController:
 
     def reset_effort(self):
         self._sum = 0.0; self._cnt = 0; self._per_layer = {}
+        self._scoord_sum = {}; self._scoord_cnt = {}        # actuated-coord accumulators
 
     def reset(self):
         if hasattr(self.inner, "reset"):
@@ -210,9 +215,14 @@ class RecordingController:
 
     def control(self, k, xi):
         u = self.inner.control(k, xi)
-        nrm = float(np.linalg.norm(np.asarray(u, np.float64), axis=-1).mean())
+        ua = np.asarray(u, np.float64)
+        nrm = float(np.linalg.norm(ua, axis=-1).mean())
         self._sum += nrm; self._cnt += 1
         self._per_layer.setdefault(k, []).append(nrm)
+        s = np.asarray(xi, np.float64) + ua                 # actuated cone coordinate
+        s2 = s.reshape(-1, s.shape[-1])
+        self._scoord_sum[k] = self._scoord_sum.get(k, 0.0) + s2.sum(0)
+        self._scoord_cnt[k] = self._scoord_cnt.get(k, 0) + s2.shape[0]
         return u
 
     @property
@@ -221,6 +231,10 @@ class RecordingController:
 
     def per_layer_effort(self):
         return {k: float(np.mean(v)) for k, v in sorted(self._per_layer.items())}
+
+    def actuated_means(self):
+        """{layer: mean actuated cone coordinate s_l:(k,)} over all recorded .control calls."""
+        return {k: self._scoord_sum[k] / self._scoord_cnt[k] for k in sorted(self._scoord_sum)}
 
 
 # =============================================================================

@@ -98,10 +98,15 @@ SVD k≥2 ≈ 0.00 (gibberish), DIM k=1 0.16.
   the infinite-horizon LQR is optimal and finite-horizon MPC only approximates it. `casa_baselines._selftest_mpc_equals_lqr` demonstrates this exactly: unconstrained MPC with
   terminal cost `Qf = S∞` reproduces the DARE LQR control to 1e-5. So MPC can only beat LQR when
   the **constraint binds** or the **horizon/terminal cost** matters.
-- **Near-identity band ⇒ lookahead inert.** The cone dynamics are near-identity (R²=0.9994); there
-  is essentially nothing for the receding horizon to anticipate, so MPC's predictive content is
-  marginal — exactly the PTS/CASA "lookahead is inert in this band" result, now confirmed against
-  a real LQR/PID ladder.
+- **(Moderately) near-identity band ⇒ weak lookahead value.** Residual connections make each block
+  *add* to the stream (`z_{l+1}=z_l+f_l(z_l)`), so `A_l=I+∂f_l/∂z` is identity-plus-a-perturbation.
+  Measured on this cone (`diagnostics.py`): full-d RMS `‖(A_l−I)v‖/‖v‖ ≈ 0.42–0.52` in the late band
+  (layer 25 ≈ 0.42), exact cone-plant `‖A_l−I‖₂` band-mean ≈ 0.86, and **5-step plant R²=0.9955**
+  (multi-step rollout barely degrades ⇒ mild, predictable compounding). So most directions evolve
+  near-identically and there is little for the receding horizon to anticipate — MPC's predictive
+  content is weak. **Honest nuance:** this is *moderate* near-identity, not the extreme 0.34 PTS
+  measured on Qwen's 2×2 plane — so weak-lookahead is a *contributing* factor, not the sole cause;
+  the non-binding constraint and the suppression-not-tracking objective (below) matter too.
 - **Constraint barely reshapes the optimum.** At the budgets that help, all laws sit near the same
   bounded operating point, so MPC's constraint-awareness ≈ post-hoc clamping the others.
 - **Objective ≠ tracking.** De-refusal is *suppress the refusal component*, not *track the harmless
@@ -161,10 +166,17 @@ depend on the (deferred) full-paper reproductions.
 These validate *external* fidelity (matching the papers' own numbers); the head-to-head above does
 not depend on them. Sized for a single A10G; sequence by value.
 
-- [ ] **PID Fig-3 diagnostic** — `pid_native.steady_state_signal` on Gemma-2-2b/Qwen-3B (P plateaus,
-      PI→0, PID damped). Cheap (~1–2 min). *Faithfulness, mechanism-level.*
-- [ ] **A-LQR Fig-5 diagnostic** — `alqr_native.layer_jacobians` top-m subspace similarity
-      (~0.8 early/late, ~0.5 mid). Moderate (Jacobians).
+- [x] **PID Fig-3 diagnostic** (`diagnostics.py`, Gemma-2-2b) — **partial/directional**: with gentle
+      gains P leaves a larger residual plateau (norm. 2.68) than PI/PID (1.85/1.84) → the integral
+      *does* reduce steady-state error, the right direction, but the open-loop model signal is noisy
+      (overshoots negative mid-stream). The **clean** proof of the mechanism is the synthetic closed-loop
+      `casa_baselines.ConePID` (P residual 1.114 → PID 0.000).
+- [x] **Near-identity diagnostic** (replaced the flaky randomized-range Fig-5; `diagnostics.py`) —
+      exact cone-plant `‖A_l−I‖₂` band-mean **0.86**, full-d JVP RMS `‖(A_l−I)v‖/‖v‖` **0.42–0.52**
+      late band, 5-step plant R² **0.9955**. Directly quantifies the property behind MPC≈LQR (moderate
+      near-identity ⇒ weak lookahead). NOTE: the paper's exact Fig-5 (full-SVD top-m energy-weighted
+      `sim_m` ~0.8/~0.5) was **not** reproduced — a cheap randomized-range proxy came out near-random
+      (≈0.02, the r/d baseline); the faithful version needs the full Jacobian SVD (still deferred).
 - [ ] **Jailbreak reproduction** — `repro_jailbreak.py --model Qwen/Qwen2.5-3B-Instruct --alqr
       --judge` (both papers report Qwen-3B: A-LQR+ 0.96, A-LQR 0.86, S-PID 0.84, PID 0.76). Validate
       *ordering* (method > best baseline). NOTE: A-LQR full-d Jacobians are the expensive step;

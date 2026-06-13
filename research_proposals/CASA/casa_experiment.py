@@ -45,6 +45,8 @@ from utils import get_input_data, tokenize_instructions_fn, add_hooks       # no
 from phase_portrait import extract_all_layer_activations, compute_steering_plane  # noqa: E402
 from observables import make_margin_fn                                       # noqa: E402
 
+sys.path.insert(0, str(_HERE.parents[1] / "CALM"))           # calm_mpc (CoherenceMPC)
+
 import casa_cone as cone                                                     # noqa: E402
 from casa_actuator import ConeActuator, orthonormalize                       # noqa: E402
 
@@ -137,6 +139,16 @@ def main():
     ap.add_argument("--ctrl-umax-fracs", type=float, nargs="*", default=[1e9, 0.5, 0.25],
                     help="u_max budgets (×pscale) for the --ladder controllers; "
                          "1e9 = unconstrained (exposes the constrained↔unconstrained regime)")
+    ap.add_argument("--frontier", action="store_true",
+                    help="CALM: map the strength↔coherence frontier — sweep control STRENGTH "
+                         "over a wide u_max grid for {P, MPC} + the coherence-aware {cMPC} swept "
+                         "over κ, on the SAME cone plant; log realized effort + cone-space "
+                         "Mahalanobis coherence surrogate. Tests whether cMPC dominates the frontier.")
+    ap.add_argument("--frontier-fracs", type=float, nargs="*",
+                    default=[1e9, 2.0, 1.0, 0.5, 0.25],
+                    help="wide u_max strength grid (×pscale) for --frontier (incl. over-steer)")
+    ap.add_argument("--kappas", type=float, nargs="*", default=[0.5, 2.0],
+                    help="on-manifold density weights κ for the CALM CoherenceMPC (--frontier)")
     ap.add_argument("--judge", action="store_true",
                     help="score every condition's harmful generations with the "
                          "StrongREJECT fine-tuned judge (the behavioural ground truth)")
@@ -159,6 +171,7 @@ def main():
         args.plane_samples = 48; args.n_fit = 48; args.n_target = 8; args.n_obs = 8
         args.n_gen = 3; args.svd_ks = [1, 4]; args.rco_dims = [2]
         args.steps = 4; args.batch = 2; args.n_mc = 2; args.umax_fracs = [1e9]
+        args.frontier_fracs = [1e9, 0.5]; args.kappas = [1.0]
 
     torch.manual_seed(0)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -360,6 +373,8 @@ def main():
     print(f"baseline: refusal margin {base_margin:+.2f}  neutralNLL {base_nll:.3f}")
     cond_texts = {}                                          # tag -> harmful generations (for the judge)
     effort_by_tag = {}                                       # tag -> realized mean ‖u_l‖ (control-law rows)
+    surrogate_by_tag = {}                                    # tag -> cone-space Mahalanobis coherence surrogate
+    kappa_by_tag = {}                                        # tag -> CALM density weight κ (cMPC rows)
     base_texts = generate(harmful_test[:args.n_obs], [])
     cond_texts["baseline"] = base_texts
     base_gen_nll = gen_coherence(harmful_test[:args.n_obs], base_texts)
@@ -370,15 +385,22 @@ def main():
     rows = []
     # evaluate full ablation (umax=inf) for every subspace, plus the u_max sweep for cones
     eval_set = []
-    for label, U in subspaces.items():
-        eval_set.append((label, U, 1e9))                    # full ablation
-    for label, U in subspaces.items():
-        if label.startswith("CONE") or label in ("DIM k=1", "RDO k=1"):
-            ps = pscale(U)
-            for frac in args.umax_fracs:
-                if frac > 1e8:
-                    continue                                # already did full above
-                eval_set.append((f"{label}", U, frac * ps))
+    if args.frontier:
+        # frontier mode is a control-LAW sweep; keep only a couple of static-ablation anchors
+        kk_ref = max(args.rco_dims) if args.rco_dims else 4
+        for label in (f"CONE k={kk_ref}", "RDO k=1"):
+            if label in subspaces:
+                eval_set.append((label, subspaces[label], 1e9))
+    else:
+        for label, U in subspaces.items():
+            eval_set.append((label, U, 1e9))                # full ablation
+        for label, U in subspaces.items():
+            if label.startswith("CONE") or label in ("DIM k=1", "RDO k=1"):
+                ps = pscale(U)
+                for frac in args.umax_fracs:
+                    if frac > 1e8:
+                        continue                            # already did full above
+                    eval_set.append((f"{label}", U, frac * ps))
 
     for label, U, umax in eval_set:
         hooks, k = actuator_hooks(U, umax)
@@ -397,9 +419,10 @@ def main():
     # u_max incl. unconstrained (frac=1e9) to expose the constrained↔unconstrained regime
     # (theory: unconstrained ⇒ MPC≈LQR; MPC's edge needs a binding constraint) and log
     # realized mean ‖u_l‖ so behaviour is compared at matched effort.
-    if (args.mpc or args.ladder) and args.rco_dims:
+    if (args.mpc or args.ladder or args.frontier) and args.rco_dims:
         import casa_control as ctrl
         from casa_baselines import ConeP, ConePID, ConeLQR, RecordingController
+        from calm_mpc import CoherenceMPC, fit_cone_density, mahalanobis_trajectory
         kk = max(args.rco_dims)
         base_label = f"CONE k={kk}"
         Bm = orthonormalize(subspaces[base_label].to(device))         # (k,d) on device
@@ -412,13 +435,22 @@ def main():
         # reference: track the harmless-mean cone coordinate (PTS Option A, compliant)
         lmean_coord = (torch.from_numpy(lmean).float() @ Bm.cpu().t()).numpy()  # (L,k)
         ps = pscale(subspaces[base_label])
+        # on-manifold (harmless) density of the cone coordinate: μ_l, Σ_l⁻¹ per layer
+        # — CALM's coherence cost AND the surrogate that validates it against genNLL.
+        coords_hl = cone_coords_all_layers(model, tokenizer, harmless_train[:args.n_fit], Bm, device)
+        dens = fit_cone_density(coords_hl)
+        mu_dens, Sinv = dens["mu"], dens["Sinv"]
         print(f"[Exp3] cone plant R²: 1-step={r2_1:.4f}  5-step={r2_5:.4f}  "
               f"(PTS 2×2 was ≈0.999); pscale={ps:.2f}")
 
-        def make_ctrl(name, umax):
+        def make_ctrl(name, umax, kappa=0.0):
             if name == "MPC":
                 return ctrl.ConeMPC(A_, b_, lmean_coord, layers=band, H=6,
                                     q_pos=1.0, r_ctrl=0.05, u_max=umax, fista_iters=60)
+            if name == "cMPC":                                # CALM coherence-aware MPC
+                return CoherenceMPC(A_, b_, lmean_coord, layers=band, Sinv=Sinv, mu=mu_dens,
+                                    kappa=kappa, H=6, q_pos=1.0, r_ctrl=0.05,
+                                    u_max=umax, fista_iters=60)
             if name == "P":
                 return ConeP(lmean_coord, band, kp=1.0, u_max=umax)
             if name == "PID":
@@ -432,33 +464,40 @@ def main():
                                u_max=umax, feedforward=True)
             raise ValueError(name)
 
-        if args.ladder:
-            ctrl_names = ["P", "PID", "LQR", "LQR+ff", "MPC"]
-            fracs = list(args.ctrl_umax_fracs)
+        # build the (controller, u_max-frac, κ) specs for this mode
+        specs = []                                            # list of (cname, frac, kappa)
+        if args.frontier:                                     # CALM strength↔coherence frontier
+            for cn in ["P", "MPC"]:                           # isotropic references (P=simplest, MPC=best)
+                specs += [(cn, fr, 0.0) for fr in args.frontier_fracs]
+            for kap in args.kappas:                           # coherence-aware MPC swept over κ
+                specs += [("cMPC", fr, kap) for fr in args.frontier_fracs]
+        elif args.ladder:
+            specs = [(cn, fr, 0.0) for cn in ["P", "PID", "LQR", "LQR+ff", "MPC"]
+                     for fr in args.ctrl_umax_fracs]
         else:                                                 # legacy --mpc: MPC only, bounded
-            ctrl_names = ["MPC"]
-            fracs = [0.5, 0.25]
+            specs = [("MPC", fr, 0.0) for fr in (0.5, 0.25)]
 
-        print(f"  {'controller':16s} {'umax':>7s} {'k':>2s} {'margin':>8s} "
-              f"{'NLLtax':>7s} {'ASR':>6s} {'genNLL':>7s} {'effort':>7s}")
-        for cname in ctrl_names:
-            for frac in fracs:
-                umax = None if frac > 1e8 else frac * ps
-                rc = RecordingController(make_ctrl(cname, umax))
-                hooks = ctrl.make_controller_hooks(module_dict, band, Bm, rc)
-                m = margin(hooks); nll = neutral_nll(hooks)
-                rc.reset_effort()                              # measure effort over generation
-                texts = generate(harmful_test[:args.n_obs], hooks)
-                a = asr(texts); gnll = gen_coherence(harmful_test[:args.n_obs], texts)
-                eff = rc.mean_effort
-                label = f"{base_label}+{cname}"
-                tag = f"{label}|umax={'inf' if umax is None else f'{umax:.2f}'}"
-                cond_texts[tag] = texts
-                effort_by_tag[tag] = eff
-                rows.append((tag, label, kk, (1e9 if umax is None else umax),
-                             m, nll - base_nll, a, gnll))
-                print(f"  {label:16s} {('inf' if umax is None else f'{umax:.2f}'):>7s} "
-                      f"{kk:>2d} {m:+8.2f} {nll-base_nll:+7.3f} {a:6.2f} {gnll:7.2f} {eff:7.2f}")
+        print(f"  {'controller':18s} {'umax':>7s} {'k':>2s} {'margin':>8s} "
+              f"{'NLLtax':>7s} {'ASR':>6s} {'genNLL':>7s} {'effort':>7s} {'surrog':>8s}")
+        for cname, frac, kappa in specs:
+            umax = None if frac > 1e8 else frac * ps
+            rc = RecordingController(make_ctrl(cname, umax, kappa))
+            hooks = ctrl.make_controller_hooks(module_dict, band, Bm, rc)
+            m = margin(hooks); nll = neutral_nll(hooks)
+            rc.reset_effort()                                  # measure effort+surrogate over generation
+            texts = generate(harmful_test[:args.n_obs], hooks)
+            a = asr(texts); gnll = gen_coherence(harmful_test[:args.n_obs], texts)
+            eff = rc.mean_effort
+            surr = mahalanobis_trajectory(rc.actuated_means(), mu_dens, Sinv, band)
+            label = f"{base_label}+cMPC@{kappa:g}" if cname == "cMPC" else f"{base_label}+{cname}"
+            tag = f"{label}|umax={'inf' if umax is None else f'{umax:.2f}'}"
+            cond_texts[tag] = texts
+            effort_by_tag[tag] = eff; surrogate_by_tag[tag] = surr
+            kappa_by_tag[tag] = kappa
+            rows.append((tag, label, kk, (1e9 if umax is None else umax),
+                         m, nll - base_nll, a, gnll))
+            print(f"  {label:18s} {('inf' if umax is None else f'{umax:.2f}'):>7s} "
+                  f"{kk:>2d} {m:+8.2f} {nll-base_nll:+7.3f} {a:6.2f} {gnll:7.2f} {eff:7.2f} {surr:8.2f}")
         meta_mpc = {"plant_r2_1step": r2_1, "plant_r2_5step": r2_5, "pscale": ps}
     else:
         meta_mpc = {}
@@ -516,17 +555,20 @@ def main():
               "umax": (None if umax > 1e8 else umax), "margin": m,
               "nll_tax": tax, "asr": a, "gen_nll": gnll,
               "realized_effort": effort_by_tag.get(tag),
+              "surrogate": surrogate_by_tag.get(tag),
+              "kappa": kappa_by_tag.get(tag),
               "sr_score": sr.get(tag, (None, None))[0],
               "sr_asr": sr.get(tag, (None, None))[1]}
              for tag, label, k, umax, m, tax, a, gnll in rows]
-    jpath = _HERE.parent / "outputs" / f"casa_cone_{name}{'_quick' if args.quick else ''}.json"
+    stem = ("casa_frontier" if args.frontier else "casa_cone")
+    jpath = _HERE.parent / "outputs" / f"{stem}_{name}{'_quick' if args.quick else ''}.json"
     jpath.parent.mkdir(parents=True, exist_ok=True)
     with open(jpath, "w") as f:
         json.dump({"meta": meta, "rows": jrows,
                    "generations": {lab: headline_texts[lab] for lab in headline_texts},
                    "gen_prompts": list(gp)}, f, indent=2)
 
-    out = _HERE.parent / "outputs" / f"casa_cone_{name}{'_quick' if args.quick else ''}.txt"
+    out = _HERE.parent / "outputs" / f"{stem}_{name}{'_quick' if args.quick else ''}.txt"
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w") as f:
         f.write(f"model={args.model}  steer/add_layer={l_add}  band={band[0]}..{band[-1]}  "
