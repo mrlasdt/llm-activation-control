@@ -1,0 +1,6 @@
+GO (MOSAIC headline): scalar-A push binds the hold-constraint AND an allocated solution is feasible.
+drive formality: self Δ=0.183; induced reading Δ=6.375 (3.0×SE), sentiment Δ=0.016 (0.1×SE)
+drive reading: self Δ=9.062; induced formality Δ=0.215 (3.3×SE), sentiment Δ=0.454 (2.1×SE)
+drive sentiment: self Δ=0.453; induced formality Δ=0.186 (2.8×SE), reading Δ=2.204 (1.0×SE)
+cross-Gram cosines (band-mean): formality|reading=+0.489, formality|sentiment=-0.252, reading|sentiment=-0.140
+hold-feasibility residual (formality ⟂ others) = 0.844 (> 0.3 ⇒ a feasible allocated push exists: True)

@@ -1,0 +1,5 @@
+WIN (closed-loop beats open-loop): output feedback holds reading > 1 SE tighter than the open-loop drive at matched formality-gain — generation-time re-entanglement IS controllable by output feedback, unlike the open-loop projection Phase 3 tied.
+m_F=0.04: |B-drift| vs κ [(0.0, 2.91, 0.088), (1.0, 1.23, 0.082), (2.0, 1.66, 0.094), (4.0, 3.03, 0.007), (8.0, 3.29, -0.006)]
+m_F=0.06: |B-drift| vs κ [(0.0, 3.41, 0.12), (1.0, 1.38, 0.112), (2.0, 1.28, 0.095), (4.0, 2.46, 0.056), (8.0, 3.37, 0.039)]
+m_F=0.08: |B-drift| vs κ [(0.0, 3.87, 0.151), (1.0, 1.4, 0.143), (2.0, 1.31, 0.13), (4.0, 2.03, 0.121), (8.0, 3.33, 0.119)]
+matched-A-gain (g, drive|B|, closed|B|, paired drive−closed, SE): [(0.088, 2.91, 1.44, 1.68, 0.32), (0.102, 3.13, 1.32, 1.63, 0.44), (0.116, 3.35, 1.37, 2.03, 0.42), (0.129, 3.55, 1.32, 2.1, 0.41), (0.143, 3.75, 1.4, 2.47, 0.41)]

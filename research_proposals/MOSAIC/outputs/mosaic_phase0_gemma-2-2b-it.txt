@@ -1,0 +1,13 @@
+GO (MOSAIC headline): scalar-A push binds the hold-constraint AND an allocated solution is feasible.
+drive formality @frac=0.05 (dist2=0.96): self Δ=0.214; induced reading Δ=3.732 (3.9×SE), sentiment Δ=0.125 (1.7×SE)
+drive reading @frac=0.05 (dist2=0.97): self Δ=6.607; induced formality Δ=0.263 (8.9×SE), sentiment Δ=0.274 (3.7×SE)
+drive sentiment @frac=0.1 (dist2=0.96): self Δ=0.385; induced formality Δ=0.415 (14.1×SE), reading Δ=5.844 (6.1×SE)
+cross-Gram cosines (band-mean): formality|reading=+0.499, formality|sentiment=-0.258, reading|sentiment=-0.165
+hold-feasibility residual (formality ⟂ others) = 0.839 (> 0.3 ⇒ a feasible allocated push exists: True)
+reversion α=0.40 (SARTRE-arm GO window [0.3,0.95]: True)
+
+Induced-drift matrix (rows=driven, cols=measured Δ; coherent operating point):
+  driven/meas              formality               reading             sentiment   frac  dist2
+  formality      +0.214  +7.2σ(self)   +3.732  +3.9σ         +0.125  +1.7σ         0.05   0.96
+  reading        +0.263  +8.9σ         +6.607  +6.9σ(self)   +0.274  +3.7σ         0.05   0.97
+  sentiment      -0.415 -14.1σ         -5.844  -6.1σ         +0.385  +5.2σ(self)    0.1   0.96

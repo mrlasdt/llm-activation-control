@@ -1,0 +1,5 @@
+SCOPED NULL (pre-registered): even on the coupled direction(s) ['formality->reading', 'reading->formality'], allocation only ties the best PLS-scalar — residual coupling after a good direction is too small to exploit. Report the dividing line (allocation pays iff coupling > ε; Phase-2 drift/gain).
+[formality->reading] coupling(scalar |B-drift|@matched-A=+0.12)=2.43 → MATERIAL
+          |B-drift|: scalar=2.43  alloc=2.68  repind/k1=2.13  | paired scalar−alloc=-0.17±0.52SE → no-win; cone>single:False
+[reading->formality] coupling(scalar |B-drift|@matched-A=+0.29)=0.08 → MATERIAL
+          |B-drift|: scalar=nan  alloc=0.09  repind/k1=0.10  | paired scalar−alloc=+0.03±0.01SE → no-win; cone>single:True

@@ -1,0 +1,7 @@
+PARTIAL — depth-indexing not better: formality (carry the cone result; report depth-indexing honestly).
+C1[formality]: intensity-recon R² PLS=0.98 vs PCA=0.79 (PLS-specific:True); PLS push gain=+0.08 distinct2=0.98 (coherent:True); PCA gain=+0.04/d2=1.00 → ✓
+C1[reading]: intensity-recon R² PLS=0.92 vs PCA=-0.18 (PLS-specific:True); PLS push gain=+1.52 distinct2=1.00 (coherent:True); PCA gain=+1.54/d2=1.00 → ✓
+C2[formality]: coherent miscal |achieved−τ|  depth-indexed=0.503  single-vector@L24=0.479 → depth does NOT beat ✗
+C2[reading]: coherent miscal |achieved−τ|  depth-indexed=4.504  single-vector@L24=6.805 → depth wins ✓
+RepInd[formality→reading]: other-attr drift rawPLS=-0.15 → RepInd=-0.60 (self-gain raw=+0.08/RepInd=+0.04)
+RepInd[reading→formality]: other-attr drift rawPLS=+0.06 → RepInd=+0.05 (self-gain raw=+1.52/RepInd=-0.08)

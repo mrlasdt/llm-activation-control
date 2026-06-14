@@ -1,0 +1,7 @@
+GO: attribute-specific k>1 cones are coherent and beat the blunt PCA span, AND the depth-indexed full-band reference beats a single diff-in-means vector on calibration.
+C1[formality]: intensity-recon R² PLS=0.92 vs PCA=0.62 (PLS-specific:True); PLS push gain=+0.19 distinct2=0.96 (coherent:True); PCA gain=+0.20/d2=0.95 → ✓
+C1[reading]: intensity-recon R² PLS=0.94 vs PCA=0.73 (PLS-specific:True); PLS push gain=+24.37 distinct2=0.91 (coherent:True); PCA gain=+5.11/d2=0.84 → ✓
+C2[formality]: coherent miscal |achieved−τ|  depth-indexed=0.113  single-vector@L33=0.153 → depth wins ✓
+C2[reading]: coherent miscal |achieved−τ|  depth-indexed=3.975  single-vector@L27=5.881 → depth wins ✓
+RepInd[formality→reading]: other-attr drift rawPLS=+1.29 → RepInd=+0.65 (self-gain raw=+0.19/RepInd=+0.18)
+RepInd[reading→formality]: other-attr drift rawPLS=+0.14 → RepInd=+0.04 (self-gain raw=+24.37/RepInd=+19.55)

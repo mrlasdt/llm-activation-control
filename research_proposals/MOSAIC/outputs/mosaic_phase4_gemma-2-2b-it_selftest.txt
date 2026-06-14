@@ -1,0 +1,3 @@
+NULL (entanglement irreducible): the loop genuinely regulates the sensor (|B-drift| drops with κ) but only by sacrificing formality-gain and/or coherence — at matched formality-gain it does NOT hold reading tighter than open-loop. With a PERFECT (FK) sensor, the formality↔reading entanglement is not a controllable disturbance: 'formal-but-simple' is off-manifold for the model. Closes the MOSAIC arc — the side-effect is intrinsic, not a control problem.
+m_F=0.06: |B-drift| vs κ [(0.0, 1.62, 0.014), (6.0, 1.33, -0.006)]
+matched-A-gain (g, drive|B|, closed|B|, paired drive−closed, SE): []

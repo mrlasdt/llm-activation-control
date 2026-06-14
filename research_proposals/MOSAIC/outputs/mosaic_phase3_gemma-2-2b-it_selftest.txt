@@ -1,0 +1,5 @@
+SCOPED NULL (pre-registered): allocation ties the best PLS-scalar at matched A-tracking — residual coupling after a good direction is too small for the null-space to exploit. Report the dividing line: allocation pays iff residual coupling > ε (Phase-2 drift/gain).
+[formality->reading] matched A-gain≈+0.07: |B-drift| scalar=4.33 alloc=nan repind/k1=5.26  → alloc ties/》 scalar; k1-distinct:no(k1 also helps)
+          paired |B-drift| scalar−alloc = +2.53 ± 1.86 SE (scalar@frac0.04 A+0.05/|Bd|3.56; alloc@frac0.04 A+0.08/|Bd|1.02)  → paired-win:True
+[reading->formality] matched A-gain≈+1.11: |B-drift| scalar=nan alloc=0.10 repind/k1=0.12  → alloc ties/》 scalar; k1-distinct:no(k1 also helps)
+          paired |B-drift| scalar−alloc = -0.02 ± 0.03 SE (scalar@frac0.04 A+1.39/|Bd|0.08; alloc@frac0.04 A+1.39/|Bd|0.10)  → paired-win:False

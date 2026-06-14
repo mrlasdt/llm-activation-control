@@ -1,0 +1,5 @@
+PARTIAL/NO-GO — probe(s) below r-gate: sentiment; non-monotone/hump attribute(s): sentiment. Report per-attribute; carry only the attributes that pass.
+PROBE r (held-out, vs external scorer): formality=0.912✓, reading=0.942✓, sentiment=0.727✗  (gate r>0.85)
+FRONTIER[formality]: coherent fracs=[0.0, 0.025, 0.05, 0.075, 0.1] | intensity Spearman(frac)= 1.00 | peak-at-strongest-coherent=True | hump=False -> monotone ✓
+FRONTIER[reading]: coherent fracs=[0.0, 0.025, 0.05, 0.075] | intensity Spearman(frac)= 1.00 | peak-at-strongest-coherent=True | hump=False -> monotone ✓
+FRONTIER[sentiment]: coherent fracs=[0.0, 0.025, 0.05, 0.075, 0.1] | intensity Spearman(frac)= 0.90 | peak-at-strongest-coherent=True | hump=False -> monotone ✗
