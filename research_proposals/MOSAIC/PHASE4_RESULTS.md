@@ -1,12 +1,14 @@
 # MOSAIC Phase 4 — closed-loop token-level hold (output feedback): results
 
-**Verdict: WIN — the first "control law beats the open-loop lever" result in the whole program.**
-A closed-loop controller that drives formality up while **regulating the measured reading-level back to
-baseline each chunk** holds reading **>1 SE tighter than the best open-loop push at matched
-formality-gain** — exactly the separation the open-loop linear allocation (Phase 3) provably could NOT
-achieve (shared frontier). The difference is *output feedback*: it sees the generation-time
-re-entanglement and counter-pushes. **Honest caveat: it is not a free lunch — the hold is bought with a
-coherence tax and only works in a narrow gain band (κ≈4; κ≥8 over-corrects and degenerates).**
+**Verdict: WIN (the program's first "control law beats the open-loop lever" result) — DECISIVE on Qwen2.5-3B
+(§6), DIRECTIONAL/weak on Gemma-2-2b (this section).** A closed-loop controller that drives formality up
+while **regulating the measured reading-level back to baseline each chunk** holds reading tighter than the
+open-loop push **at matched formality-gain** — the separation the open-loop linear allocation (Phase 3)
+could not achieve (shared frontier). On Gemma the matched-gain effect is **1.25 ± 0.72 SE ≈ 1.7 SE
+(one paired test, two-sided p≈0.08) — suggestive, not significant**; the load-bearing evidence is the Qwen
+replication (§6, 3.7–6.0 SE). The difference vs open-loop is *output feedback*: it sees the generation-time
+re-entanglement and counter-pushes. **Not a free lunch — the hold is bought with a coherence tax and works
+only in a narrow gain band (κ≈4 on Gemma; κ≥8 over-corrects and degenerates).**
 
 Run: `mosaic_phase4.py --run` (Gemma-2-2b-it, band [7,24]; n_eval=32, 4 chunks × 32 tok = 128;
 drive m_F ∈ {0.04,0.06,0.08}·pscale, hold gain κ ∈ {0,4,8,16}; sensor = exact Flesch-Kincaid).
@@ -127,18 +129,24 @@ diff-in-means vector (formality 0.113<0.153, reading 3.975<5.881); plant R² 0.9
 | +0.116 | 3.35 | 1.37 | 2.03 ± 0.42 (4.8 SE) |
 | +0.143 | 3.75 | 1.40 | 2.47 ± 0.41 (6.0 SE) |
 
-- **Stronger and cleaner than Gemma.** The win is **4–6 SE** (vs Gemma's ~1.7 SE), and at the sweet
-  spot **κ=1** the closed-loop holds reading **~2.5× tighter** (|drift| 1.2–1.4 vs drive-only 2.9–3.9)
-  while preserving **~90–95% of the formality-gain** AND **near-baseline coherence** (distinct-2 0.94–0.95
-  vs baseline 0.97) — a near-clean Pareto win, i.e. a **smaller coherence tax** than Gemma (where κ=4 cost
-  distinct-2 0.95→0.86).
+- **Stronger and cleaner than Gemma.** Paired differences range **3.7–6.0 SE** across five interpolated
+  operating points (vs Gemma's single ~1.7 SE test), and at the sweet spot **κ≈1** the closed-loop holds
+  reading **~2× tighter at matched gain** (|drift| 2.91 → 1.44 = 2.0×; ~2.4× using the raw κ=1 |drift|=1.23)
+  while preserving **~90–95% of the formality-gain** AND **near-baseline coherence** (κ=1 distinct-2
+  0.94–0.95, vs the open-loop κ=0 distinct-2 ≈0.96–0.97 reported in the run log) — a near-clean Pareto win,
+  i.e. a **smaller coherence tax** than Gemma (where κ=4 cost distinct-2 0.95→0.90 at the headline m_F=0.04).
+  (By raw min-drift, κ=2 marginally beats κ=1 at the higher m_F levels; κ≈1 is the sweet spot once gain
+  preservation and coherence are included.)
 - **Same mechanism, same control signature.** e_R regulates down (m_F=0.06, κ=1: 3.0→2.5→1.5→1.4) while
   drive-only stays flat (3.0→3.4); high κ **over-corrects** (κ=4–8: reading-drift climbs back, coherence
   craters 0.70→0.62) — the same high-gain instability as Gemma.
-- **Optimal κ scales with pscale, as predicted.** Sweet spot κ≈1 on Qwen (pscale 58) vs κ≈4 on Gemma
-  (pscale 180) — the hold push `κ·e_R·g_R` is in FK-grade units (not pscale-scaled), so the balanced gain
-  scales ~inversely with pscale (4/1 ≈ 180/58). The controller is well-behaved and the parametrization is
-  understood (a pscale-relative κ would transfer the gain directly — a clean-up for the writeup).
+- **Optimal κ — consistent with pscale scaling, but confounded by the actuator bound.** Sweet spot κ≈1 on
+  Qwen (pscale 58) vs κ≈4 on Gemma (pscale 180); the hold push `κ·e_R·g_R` is in FK-grade units (not
+  pscale-scaled), so the balanced gain should scale ~inversely with pscale (4/1 ≈ 180/58) — **consistent**
+  with what we see. BUT the Phase-4 runs also differ in actuator bound (**u_max = 0.15·pscale on Gemma vs
+  0.20·pscale on Qwen**), which gives Qwen more correction headroom and partly confounds both the cleaner
+  Qwen win and the κ-shift. So this is a suggestive scaling, not a controlled result; a pscale-relative κ
+  (and matched u_max) would isolate it — a clean-up for future work.
 
 **Bottom line:** MOSAIC Phase 4 — closed-loop output-feedback hold beats the open-loop lever — is now
 confirmed on **2 model families** (Gemma-2-2b, Qwen2.5-3B), **more decisively on Qwen** (4–6 SE, near-zero

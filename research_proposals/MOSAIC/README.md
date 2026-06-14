@@ -1,6 +1,6 @@
 # MOSAIC — Multi-Objective Steering via Allocation In Cones
 
-**Proposal:** [`MOSAIC_PROPOSAL.md`](MOSAIC_PROPOSAL.md). **Status: Phases 0–4 run (2026-06-14).**
+**Proposal:** [`MOSAIC_PROPOSAL.md`](MOSAIC_PROPOSAL.md). **Status: Phases 0–6 run (2026-06-14).**
 
 > **Results banner (honest).** Phase 0 **GO** (cross-coupling binds; formality↔reading cosine +0.50;
 > reversion α≈0.40) → Phase 1 **GO** (probes r=0.91/0.94 > 0.85; strictly-monotone strength↔coherence
@@ -11,20 +11,43 @@
 > *semantic entanglement*, not a linearly-separable subspace) → **Phase 4 WIN — the first
 > "control-law > open-loop lever" result in the whole program.** A **closed-loop** controller that drives
 > formality up while **regulating the measured reading-level back to baseline each chunk** holds reading
-> **>1 SE tighter** than the open-loop push at matched formality-gain (|drift| 3.66→1.69 at κ=4; frontier
-> dominates). **Why it works where Phase 3 tied:** the side-effect *accumulates over generation*, so
+> tighter than the open-loop push at matched formality-gain (Gemma matched-gain |drift| 3.66→2.12, paired
+> **1.25±0.72 SE ≈1.7 SE — suggestive, one test**; **decisive on Qwen**, below; frontier dominates). **Why it works where Phase 3 tied:** the side-effect *accumulates over generation*, so
 > *output feedback* sees and corrects the downstream re-entanglement an open-loop per-layer projection
 > cannot. **Caveat: not a free lunch** — coherence tax (distinct-2 0.95→0.86 at κ=4) + narrow stable gain
-> band (κ≥8 over-corrects/degenerates). **Bottom line:** open-loop steering (lookahead/coherence-cost/
+> band (κ≥8 over-corrects/degenerates; the 0.86 is at m_F=0.06 — at the m_F=0.04 headline it is 0.95→0.90,
+> matching the WRITEUP). **Bottom line:** open-loop steering (lookahead/coherence-cost/
 > allocation) can't separate semantically-entangled attributes; **closed-loop output feedback can**, when
 > the target is graded, the side-effect accumulates over tokens, and a faithful output sensor exists. See
 > `PHASE{0,1,2,3,4}_RESULTS.md`. **Cross-model replication (Qwen2.5-3B): WIN, more decisively** — Phase 2
-> prerequisites reproduce (PLS recon R² 0.92/0.94 ≫ PCA), and Phase 4 closed-loop holds reading ~2.5×
-> tighter at matched formality-gain (paired **4–6 SE** vs Gemma's 1.7 SE) at the κ=1 sweet spot with
-> **near-baseline coherence** (distinct-2 0.94 vs 0.97 — a smaller coherence tax than Gemma). Optimal κ
-> scales with pscale (≈1 Qwen / ≈4 Gemma), same over-correction at high κ. **The first "control-law >
-> open-loop lever" result in the program now holds on 2 model families.** Next: larger n + true per-token
-> loop, coherence-aware gain-scheduling (OAS/PID), full setpoint-tracking MIMO.
+> prerequisites reproduce (PLS recon R² 0.92/0.94 ≫ PCA), and Phase 4 closed-loop holds reading **~2×
+> tighter at matched formality-gain** (2.91→1.44; paired **3.7–6.0 SE** across operating points — decisive,
+> vs Gemma's ~1.7 SE) at the κ≈1 sweet spot with **near-baseline coherence** (distinct-2 0.94–0.95 vs
+> open-loop ≈0.96–0.97 — smaller coherence tax than Gemma). Optimal κ consistent with ~inverse-pscale
+> scaling (≈1 Qwen / ≈4 Gemma) but **confounded by u_max (0.15 vs 0.20)**; same high-κ over-correction.
+> **The program's first "control-law > open-loop lever" result — directional on Gemma, decisive on Qwen —
+> now holds across 2 model families.**
+>
+> **Phase 5 (true per-token loop) — loop RATE is a minor lever.** A genuine per-token loop (KV-cached,
+> token-identical to `model.generate` under zero push) does NOT beat the chunked loop by reacting to
+> fresher error: raw per-token updates are *less coherent* at matched κ (distinct-2 0.73–0.84) — tighter
+> hold only by going incoherent (working hypothesis: **actuator chatter**; push total-variation not logged,
+> so unproven). The control-theoretic fix — **slew-limiting / low-pass-filtering the feedback** (EMA) —
+> recovers coherence and edges out the chunked loop by only **~1.7 SE in one Gemma cell**; on Qwen the per-token
+> loop stays coherent unaided (+1.5 SE, one cell) and slew-limiting just adds lag. The cheap chunked loop
+> is the robust default; the control *signal's smoothness*, not its rate, is what matters.
+> **Phase 6 (full MIMO setpoint tracking) — an AUTHORITY-bounded reachable set.** Driving BOTH
+> (formality, reading) to arbitrary setpoints, including the anti-correlated "formal-but-simple" corner:
+> **NULL/BOUNDARY on both families.** The two style actuators' output-effects are **88% collinear (cond G
+> 3.97) on Gemma, 94% (cond G 7.23) on Qwen** — the quantitative, cross-family form of the Phase-3 semantic
+> entanglement. The limit is *moderate* ill-conditioning × the authority bound (G full-rank, cond≈4–7 is
+> moderate — reachable in principle with more authority, at a coherence cost), NOT a rank deficiency. A
+> model-based **decoupling** controller ties the naive **diagonal** one on Gemma (and is significantly
+> *worse* on one Gemma setpoint, −2.0 SE) and is **actively worse** on (more ill-conditioned) Qwen —
+> textbook model-inversion failure under actuator saturation + ill-conditioning. **The Phase-4 closed-loop
+> win is real but LOCAL** (disturbance-rejection to baseline), not arbitrary 2-DoF placement, which the
+> coherent authority budget × actuator collinearity bounds. Next: reachable-set map over u_max
+> (reach-vs-coherence), PI/anti-windup controller sweep, third model family, larger n.
 
 ## One line
 

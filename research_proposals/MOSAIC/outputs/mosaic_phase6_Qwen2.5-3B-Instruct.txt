@@ -1,0 +1,7 @@
+NULL/BOUNDARY (intrinsic reachable-set limit): at the anti-correlated corner BOTH controllers leave large residual error (cond(G)=7.2, actuator collinearity cos=+0.94) — the two style actuators produce near-collinear output effects, so 'formal-but-simple' is structurally near-unreachable within ‖u‖≤u_max regardless of controller. cond(G) is the quantitative form of the Phase-3 entanglement hypothesis.
+plant: cond(G)=7.23, actuator-effect collinearity cos=+0.939 (|cos|→1 ⇒ near-collinear actuators ⇒ anti-correlated setpoints structurally hard)
+[     hold_reading    ] trackErr diag=0.940 decoup=0.975 | paired diag−decoup=-0.035±0.190SE → tie | decoup dist2=0.97
+[ANTI formal_simpler  ] trackErr diag=1.050 decoup=1.851 | paired diag−decoup=-0.800±0.618SE → tie | decoup dist2=0.91
+[     formal_complex  ] trackErr diag=0.935 decoup=1.364 | paired diag−decoup=-0.429±0.288SE → tie | decoup dist2=0.92
+[     casual_simpler  ] trackErr diag=1.050 decoup=0.946 | paired diag−decoup=+0.104±0.119SE → tie | decoup dist2=0.92
+[     hold_F_simpler  ] trackErr diag=0.896 decoup=0.920 | paired diag−decoup=-0.024±0.102SE → tie | decoup dist2=0.93

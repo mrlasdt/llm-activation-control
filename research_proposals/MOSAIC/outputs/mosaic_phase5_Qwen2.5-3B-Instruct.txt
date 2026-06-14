@@ -1,0 +1,5 @@
+WIN (per-token > chunked): in 1 cell(s) the per-token loop holds reading >1 SE tighter than chunk-stale at matched κ WHILE staying coherent — lower feedback lag buys a real, coherent hold improvement.
+[m_F=0.06 κ=1.0] |drift| per-token(ue=1)=1.83(d2=0.90) vs chunk(ue=32)=1.92(d2=0.92) | paired chunk−fine=+0.09±0.31SE → tie  || slew(ema=0.8): |drift|=2.36 d2=0.91
+[m_F=0.06 κ=2.0] |drift| per-token(ue=1)=1.42(d2=0.86) vs chunk(ue=32)=1.24(d2=0.90) | paired chunk−fine=-0.18±0.39SE → tie  || slew(ema=0.8): |drift|=1.59 d2=0.88
+[m_F=0.08 κ=1.0] |drift| per-token(ue=1)=1.79(d2=0.87) vs chunk(ue=32)=2.03(d2=0.92) | paired chunk−fine=+0.24±0.28SE → tie  || slew(ema=0.8): |drift|=2.22 d2=0.91
+[m_F=0.08 κ=2.0] |drift| per-token(ue=1)=1.36(d2=0.89) vs chunk(ue=32)=1.84(d2=0.88) | paired chunk−fine=+0.48±0.33SE → fine-tighter  || slew(ema=0.8): |drift|=1.66 d2=0.86
